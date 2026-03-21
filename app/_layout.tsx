@@ -14,11 +14,38 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+      <Stack
+        screenOptions={{
+          headerTintColor: '#1f2a58',
+          headerTitleStyle: { fontWeight: '700' },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: '#f3f7ff' },
+        }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="login" options={{ title: 'Đăng nhập' }} />
+        <Stack.Screen name="register" options={{ title: 'Đăng ký' }} />
+        <Stack.Screen name="vneid-login" options={{ title: 'Đăng nhập nhanh VNeID' }} />
+        <Stack.Screen name="biometric-confirm" options={{ title: 'Xác nhận sinh trắc học' }} />
+        <Stack.Screen name="tour-detail" options={{ title: 'Chi tiết tour' }} />
+        <Stack.Screen name="tour/[id]" options={{ title: 'Chi tiết tour' }} />
+        <Stack.Screen name="checkout" options={{ title: 'Thanh toán' }} />
+        <Stack.Screen name="notifications" options={{ title: 'Thông báo' }} />
+        <Stack.Screen name="favorites" options={{ title: 'Yêu thích' }} />
+        <Stack.Screen name="ekyc" options={{ title: 'Xác thực eKYC' }} />
+        <Stack.Screen name="search-guide" options={{ title: 'Tìm Hướng dẫn viên' }} />
+        <Stack.Screen name="guide-profile" options={{ title: 'Hồ sơ HDV' }} />
+        <Stack.Screen name="guide/[id]" options={{ title: 'Hồ sơ HDV' }} />
+        <Stack.Screen name="services" options={{ title: 'Dịch vụ thêm' }} />
+        <Stack.Screen name="booking-confirm" options={{ title: 'Xác nhận đặt tour' }} />
+        <Stack.Screen name="confirm-dispatch" options={{ title: 'Đồng bộ xác nhận' }} />
+        <Stack.Screen name="checkin" options={{ title: 'Check-in 2 bên' }} />
+        <Stack.Screen name="on-tour" options={{ title: 'Đang đi tour' }} />
+        <Stack.Screen name="tour-complete" options={{ title: 'Hoàn tất tour' }} />
+        <Stack.Screen name="settlement" options={{ title: 'Giải ngân HDV' }} />
+        <Stack.Screen name="review" options={{ title: 'Đánh giá chuyến đi' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style="dark" />
     </ThemeProvider>
   );
 }

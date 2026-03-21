@@ -9,6 +9,33 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Build output
+build/
+.expo-shared/
+
+# Logs
+logs/
+*.log
+
+# VSCode
+.vscode/
+
+# Coverage
+coverage/
+
+# IDEs
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Figma HTML
+app/figma-html/
+
+# Windows system files
+Thumbs.db
+
 # Native
 .kotlin/
 *.orig.*
