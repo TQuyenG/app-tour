@@ -57,6 +57,17 @@ export default function RootLayout() {
         <Stack.Screen name="admin-complaints" options={{ headerShown: false }} />
         <Stack.Screen name="admin-settings" options={{ headerShown: false }} />
         <Stack.Screen name="admin-flash-sale" options={{ headerShown: false }} />
+        <Stack.Screen name="guest_loyalty" options={{ headerShown: false }} />
+        <Stack.Screen name="guest_vouchers" options={{ headerShown: false }} />
+        <Stack.Screen name="guest_refund" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-analytics" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-schedule-slots" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-sponsored" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-chat" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-earnings" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-reviews" options={{ headerShown: false }} />
+        <Stack.Screen name="guide-notifications" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="dark" />
     </ThemeProvider>

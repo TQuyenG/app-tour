@@ -4,25 +4,64 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { getFavoriteTourIds, toggleFavoriteTourId } from '@/constants/local-storage';
-import { TOURS } from '@/constants/travel-data';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getPublicTours, type AppTour } from '@/constants/data-store';
 
 export default function GuestFavoritesScreen() {
   const router = useRouter();
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [allTours, setAllTours]       = useState<AppTour[]>([]);
+  const [sort, setSort]               = useState<'default' | 'price_asc' | 'rating'>('default');
 
-  useFocusEffect(useCallback(() => { getFavoriteTourIds().then(setFavoriteIds); }, []));
+  useFocusEffect(useCallback(() => {
+    getPublicTours().then(tours => {
+      setAllTours(tours);
+      AsyncStorage.getItem('@guest_favorites').then(raw => {
+        if (raw) {
+          const ids = JSON.parse(raw);
+          // Nếu đã có data thì dùng, nếu rỗng thì seed 4 tour đầu
+          setFavoriteIds(ids.length > 0 ? ids : tours.slice(0, 4).map((t: any) => t.id));
+        } else {
+          // Lần đầu: seed 4 tour đầu làm yêu thích mẫu
+          const seedIds = tours.slice(0, 4).map((t: any) => t.id);
+          setFavoriteIds(seedIds);
+          AsyncStorage.setItem('@guest_favorites', JSON.stringify(seedIds)).catch(() => {});
+        }
+      }).catch(() => {});
+    });
+  }, []));
 
-  const favoriteTours = TOURS.filter(t => favoriteIds.includes(t.id));
-  const onToggle = async (id: string) => setFavoriteIds(await toggleFavoriteTourId(id));
+  const favoriteTours = useMemo(() => {
+    const list = allTours.filter(t => favoriteIds.includes(t.id));
+    if (sort === 'price_asc') return [...list].sort((a, b) => Number(a.price) - Number(b.price));
+    if (sort === 'rating')    return [...list].sort((a, b) => b.rating - a.rating);
+    return list;
+  }, [allTours, favoriteIds, sort]);
+
+  const onToggle = async (id: string) => {
+    const next = favoriteIds.includes(id) ? favoriteIds.filter(x => x !== id) : [...favoriteIds, id];
+    setFavoriteIds(next);
+    await AsyncStorage.setItem('@guest_favorites', JSON.stringify(next)).catch(() => {});
+  };
 
   return (
     <ScrollView style={st.screen} contentContainerStyle={st.content}>
       <Text style={st.title}>Tour yêu thích</Text>
       <Text style={st.subtitle}>Danh sách tour bạn đã lưu</Text>
+
+      {/* Sort bar */}
+      {favoriteTours.length > 0 && (
+        <View style={st.sortRow}>
+          {([['default','Mặc định'],['price_asc','Giá thấp nhất'],['rating','Rating cao']] as const).map(([k,l]) => (
+            <TouchableOpacity key={k} style={[st.sortChip, sort === k && st.sortChipActive]} onPress={() => setSort(k)}>
+              <Text style={[st.sortChipTxt, sort === k && st.sortChipTxtActive]}>{l}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {favoriteTours.map(tour => (
         <TouchableOpacity key={tour.id} style={st.card}
@@ -60,4 +99,9 @@ const st = StyleSheet.create({
   meta: { color: '#7a8cc2', marginTop: 5, fontSize: 12 },
   empty: { alignItems: 'center', paddingTop: 60, gap: 12 },
   emptyTxt: { color: '#7a8cc2', textAlign: 'center', lineHeight: 20 },
+  sortRow:      { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  sortChip:     { borderRadius: 999, borderWidth: 1, borderColor: '#dfe7ff', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6 },
+  sortChipActive:{ backgroundColor: '#4f7cff', borderColor: '#4f7cff' },
+  sortChipTxt:  { color: '#6c7fb7', fontSize: 11, fontWeight: '600' },
+  sortChipTxtActive: { color: '#fff' },
 });

@@ -195,17 +195,20 @@ export default function ProfileScreen() {
 
       {/* ── Menu items ── */}
       {([
-        { href: '/guest_notifications', icon: 'notifications-outline', label: 'Thông báo' },
-        { href: '/guest_favorites',     icon: 'heart-outline',         label: 'Tour yêu thích' },
-        { href: '/bookings',            icon: 'receipt-outline',       label: 'Lịch sử đặt tour' },
-        { href: '/guest_booking_flow',  icon: 'map-outline',           label: 'Đặt tour mới' },
+        { href: '/guest_notifications', icon: 'notifications-outline', label: 'Thông báo',             color: '#4f7cff' },
+        { href: '/guest_favorites',     icon: 'heart-outline',         label: 'Tour yêu thích',        color: '#ec4899' },
+        { href: '/bookings',            icon: 'receipt-outline',       label: 'Lịch sử đặt tour',     color: '#2856d6' },
+        { href: '/guest_loyalty',       icon: 'star-outline',          label: 'Điểm thưởng & Hạng',   color: '#f59e0b' },
+        { href: '/guest_vouchers',      icon: 'ticket-outline',        label: 'Kho Voucher của tôi',   color: '#16a34a' },
+        { href: '/guest_refund',        icon: 'refresh-outline',       label: 'Yêu cầu Hoàn tiền',    color: '#8b5cf6' },
+        { href: '/guest_booking_flow',  icon: 'map-outline',           label: 'Đặt tour mới',          color: '#06b6d4' },
       ] as const).map(item => (
         <TouchableOpacity
           key={item.href}
           style={st.menuItem}
           onPress={() => router.push(item.href as any)}>
-          <View style={st.menuIcon}>
-            <Ionicons name={item.icon} size={20} color="#4f7cff" />
+          <View style={[st.menuIcon, { backgroundColor: (item as any).color + '18' }]}>
+            <Ionicons name={item.icon} size={20} color={(item as any).color} />
           </View>
           <Text style={st.menuText}>{item.label}</Text>
           <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />

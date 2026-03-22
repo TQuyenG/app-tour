@@ -55,42 +55,17 @@ const DEFAULT_PROFILE: GuideProfile = {
 };
 
 const MENU_ITEMS = [
-  {
-    icon: "calendar-outline",
-    label: "Quản lý Booking",
-    route: "/guide-booking-management",
-    color: "#2856d6",
-  },
-  {
-    icon: "map-outline",
-    label: "Tour của tôi",
-    route: "/guide-tour-management",
-    color: "#10b981",
-  },
-  {
-    icon: "time-outline",
-    label: "Lịch cá nhân",
-    route: "/guide-schedule-management",
-    color: "#22c55e",
-  },
-  {
-    icon: "cash-outline",
-    label: "Thu nhập",
-    route: "/guide-earnings",
-    color: "#f59e0b",
-  },
-  {
-    icon: "star-outline",
-    label: "Đánh giá từ khách",
-    route: "/guide-reviews",
-    color: "#a855f7",
-  },
-  {
-    icon: "notifications-outline",
-    label: "Thông báo",
-    route: "/guide-notifications",
-    color: "#4f7cff",
-  },
+  { icon: "calendar-outline",         label: "Quản lý Booking",       route: "/guide-booking-management", color: "#2856d6" },
+  { icon: "map-outline",              label: "Tour của tôi",           route: "/guide-tour-management",    color: "#10b981" },
+  { icon: "time-outline",             label: "Lịch cá nhân",          route: "/guide-schedule-management",color: "#22c55e" },
+  { icon: "grid-outline",             label: "Quản lý Slots & Giá",  route: "/guide-schedule-slots",     color: "#8b5cf6" },
+  { icon: "cash-outline",             label: "Thu nhập & Hoa hồng",  route: "/guide-earnings",           color: "#f59e0b" },
+  { icon: "bar-chart-outline",        label: "Thống kê & Analytics",  route: "/guide-analytics",          color: "#2856d6" },
+  { icon: "chatbubbles-outline",      label: "Chat với khách",        route: "/guide-chat",               color: "#06b6d4" },
+  { icon: "megaphone-outline",        label: "Quảng cáo Sponsored",  route: "/guide-sponsored",          color: "#ec4899" },
+  { icon: "star-outline",             label: "Đánh giá từ khách",    route: "/guide-reviews",            color: "#a855f7" },
+  { icon: "shield-checkmark-outline", label: "Hồ sơ & Giấy phép",   route: "/guide-onboarding",         color: "#16a34a" },
+  { icon: "notifications-outline",    label: "Thông báo",             route: "/guide-notifications",      color: "#4f7cff" },
 ] as const;
 
 export default function GuideProfile() {

@@ -34,62 +34,30 @@ const BOTTOM_TABS: { icon: string; label: string; route: Route }[] = [
 ];
 
 const DRAWER_ITEMS = [
-  { icon: "home-outline", label: "Trang chủ", route: "/guide-home" },
-  {
-    icon: "calendar-outline",
-    label: "Booking",
-    route: "/guide-booking-management",
-  },
-  {
-    icon: "map-outline",
-    label: "Tour của tôi",
-    route: "/guide-tour-management",
-  },
-  {
-    icon: "time-outline",
-    label: "Lịch cá nhân",
-    route: "/guide-schedule-management",
-  },
-  { icon: "cash-outline", label: "Thu nhập", route: "/guide-earnings" },
-  { icon: "star-outline", label: "Đánh giá", route: "/guide-reviews" },
-  {
-    icon: "notifications-outline",
-    label: "Thông báo",
-    route: "/guide-notifications",
-  },
-  { icon: "person-outline", label: "Profile", route: "/guide-profile" },
-  { icon: "settings-outline", label: "Cài đặt", route: "/settings" },
+  { icon: "home-outline",          label: "Trang chủ",        route: "/guide-home" },
+  { icon: "calendar-outline",      label: "Booking",          route: "/guide-booking-management" },
+  { icon: "map-outline",           label: "Tour của tôi",     route: "/guide-tour-management" },
+  { icon: "time-outline",          label: "Lịch cá nhân",    route: "/guide-schedule-management" },
+  { icon: "grid-outline",          label: "Quản lý Slots",   route: "/guide-schedule-slots" },
+  { icon: "cash-outline",          label: "Thu nhập",         route: "/guide-earnings" },
+  { icon: "bar-chart-outline",     label: "Thống kê & Analytics", route: "/guide-analytics" },
+  { icon: "chatbubbles-outline",   label: "Chat với khách",  route: "/guide-chat" },
+  { icon: "megaphone-outline",     label: "Quảng cáo",       route: "/guide-sponsored" },
+  { icon: "star-outline",          label: "Đánh giá",         route: "/guide-reviews" },
+  { icon: "notifications-outline", label: "Thông báo",        route: "/guide-notifications" },
+  { icon: "shield-checkmark-outline", label: "Hồ sơ & Giấy phép", route: "/guide-onboarding" },
+  { icon: "person-outline",        label: "Profile",          route: "/guide-profile" },
 ];
 
 const QUICK_ACTIONS = [
-  {
-    icon: "calendar-outline",
-    label: "Booking mới",
-    route: "/guide-booking-management",
-    color: "#2856d6",
-    bg: "#eaf0ff",
-  },
-  {
-    icon: "map-outline",
-    label: "Tour của tôi",
-    route: "/guide-tour-management",
-    color: "#16a34a",
-    bg: "#dcfce7",
-  },
-  {
-    icon: "cash-outline",
-    label: "Thu nhập",
-    route: "/guide-earnings",
-    color: "#f59e0b",
-    bg: "#fef9c3",
-  },
-  {
-    icon: "star-outline",
-    label: "Đánh giá",
-    route: "/guide-reviews",
-    color: "#a855f7",
-    bg: "#f3e8ff",
-  },
+  { icon: "calendar-outline",      label: "Booking",    route: "/guide-booking-management", color: "#2856d6", bg: "#eaf0ff" },
+  { icon: "map-outline",           label: "Tour",       route: "/guide-tour-management",    color: "#16a34a", bg: "#dcfce7" },
+  { icon: "cash-outline",          label: "Thu nhập",   route: "/guide-earnings",           color: "#f59e0b", bg: "#fef9c3" },
+  { icon: "bar-chart-outline",     label: "Analytics",  route: "/guide-analytics",          color: "#2856d6", bg: "#eaf0ff" },
+  { icon: "chatbubbles-outline",   label: "Chat",       route: "/guide-chat",               color: "#06b6d4", bg: "#ecfeff" },
+  { icon: "megaphone-outline",     label: "Quảng cáo", route: "/guide-sponsored",          color: "#ec4899", bg: "#fce7f3" },
+  { icon: "grid-outline",          label: "Slots",      route: "/guide-schedule-slots",     color: "#8b5cf6", bg: "#ede9fe" },
+  { icon: "star-outline",          label: "Đánh giá",  route: "/guide-reviews",            color: "#a855f7", bg: "#f3e8ff" },
 ];
 
 const RECENT_ACTIVITIES = [

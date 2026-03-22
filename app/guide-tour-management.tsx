@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const STORAGE_KEY = "@guide_tours";
 
-type TourStatus = "assigned" | "registered" | "ongoing" | "done" | "cancelled";
+type TourStatus = "draft" | "pending_review" | "active" | "assigned" | "registered" | "ongoing" | "done" | "cancelled";
 
 interface GuideTour {
   id: string;
@@ -123,17 +123,66 @@ const SEED: GuideTour[] = [
     note: "Đã đăng ký nhận tour này từ hệ thống, chờ xác nhận.",
     assignedBy: "self",
   },
+  {
+    id: "6",
+    name: "Tour Cần Thơ miền sông nước",
+    category: "Miền Tây",
+    date: "15/04/2026",
+    duration: "2 ngày 1 đêm",
+    meetingPoint: "Bến Ninh Kiều, Cần Thơ",
+    guests: 0,
+    maxGuests: 12,
+    price: "1800000",
+    status: "draft",
+    customerNames: "",
+    itinerary: "Ngày 1: Chợ nổi Cái Răng, vườn trái cây.\nNgày 2: Làng nghề bánh tráng, trở về.",
+    note: "Đang soạn lịch trình, chưa gửi duyệt.",
+    assignedBy: "self",
+  },
+  {
+    id: "7",
+    name: "Tour Phú Yên xứ hoa vàng",
+    category: "Biển đảo",
+    date: "20/04/2026",
+    duration: "3 ngày 2 đêm",
+    meetingPoint: "Ga Tuy Hòa, Phú Yên",
+    guests: 0,
+    maxGuests: 15,
+    price: "3200000",
+    status: "pending_review",
+    customerNames: "",
+    itinerary: "Ngày 1: Ghềnh Đá Đĩa, mũi Điện.\nNgày 2: Đầm Ô Loan, tháp Nhạn.\nNgày 3: Hòn Yến, trở về.",
+    note: "Đã gửi lên Admin chờ phê duyệt lúc 08:30 13/04/2026.",
+    assignedBy: "self",
+  },
+  {
+    id: "8",
+    name: "Khám phá Ninh Bình - Tràng An",
+    category: "Di sản",
+    date: "01/05/2026",
+    duration: "2 ngày 1 đêm",
+    meetingPoint: "Ga Ninh Bình",
+    guests: 3,
+    maxGuests: 10,
+    price: "2500000",
+    status: "active",
+    customerNames: "Đang mở đặt chỗ",
+    itinerary: "Ngày 1: Tràng An, Bích Động.\nNgày 2: Cố đô Hoa Lư, núi chùa Bái Đính.",
+    note: "Tour đã được Admin duyệt, đang nhận booking.",
+    assignedBy: "self",
+  },
+  
 ];
 
-const STATUS_MAP: Record<
-  TourStatus,
-  { label: string; color: string; bg: string }
-> = {
-  assigned: { label: "Được phân công", color: "#2856d6", bg: "#eaf0ff" },
-  registered: { label: "Chờ xác nhận", color: "#d97706", bg: "#fef9c3" },
-  ongoing: { label: "Đang dẫn", color: "#a855f7", bg: "#f3e8ff" },
-  done: { label: "Hoàn thành", color: "#16a34a", bg: "#dcfce7" },
-  cancelled: { label: "Đã hủy", color: "#dc2626", bg: "#fee2e2" },
+const STATUS_MAP: Record<TourStatus, { label: string; color: string; bg: string }> = {
+  draft:          { label: "Bản nháp",       color: "#94a3b8", bg: "#f1f5f9" },
+  pending_review: { label: "Chờ Admin duyệt",color: "#d97706", bg: "#fef9c3" },
+  active:         { label: "Đang hoạt động", color: "#16a34a", bg: "#dcfce7" },
+  assigned:       { label: "Được phân công", color: "#2856d6", bg: "#eaf0ff" },
+  registered:     { label: "Chờ xác nhận",  color: "#7c3aed", bg: "#ede9fe" },
+  ongoing:        { label: "Đang dẫn",       color: "#a855f7", bg: "#f3e8ff" },
+  done:           { label: "Hoàn thành",     color: "#16a34a", bg: "#dcfce7" },
+  cancelled:      { label: "Đã hủy",         color: "#dc2626", bg: "#fee2e2" },
 };
 
 const ASSIGNED_BY_LABEL: Record<string, { label: string; color: string }> = {
@@ -509,6 +558,44 @@ export default function GuideTourManagement() {
 
                   {/* Action buttons */}
                   <View style={s.actionRow}>
+                    {/* Workflow Draft → Pending Review → Active */}
+                    {tour.status === "draft" && (
+                      <TouchableOpacity
+                        style={[s.actionBtn, { backgroundColor: "#fef9c3" }]}
+                        onPress={() => {
+                          Alert.alert("Gửi duyệt", `Gửi tour "${tour.name}" lên Admin phê duyệt?`, [
+                            { text: "Hủy", style: "cancel" },
+                            { text: "Gửi", onPress: async () => {
+                              const updated = tours.map(t => t.id === tour.id ? { ...t, status: "pending_review" as TourStatus } : t);
+                              await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                              setTours(updated);
+                              Alert.alert("✅ Đã gửi", "Tour đang chờ Admin phê duyệt.");
+                            }},
+                          ]);
+                        }}
+                      >
+                        <Ionicons name="paper-plane-outline" size={14} color="#d97706" />
+                        <Text style={[s.actionTxt, { color: "#d97706" }]}>Gửi duyệt</Text>
+                      </TouchableOpacity>
+                    )}
+                    {tour.status === "pending_review" && (
+                      <TouchableOpacity
+                        style={[s.actionBtn, { backgroundColor: "#f1f5f9" }]}
+                        onPress={() => {
+                          Alert.alert("Thu hồi", "Thu hồi về bản nháp để chỉnh sửa?", [
+                            { text: "Hủy", style: "cancel" },
+                            { text: "Thu hồi", onPress: async () => {
+                              const updated = tours.map(t => t.id === tour.id ? { ...t, status: "draft" as TourStatus } : t);
+                              await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                              setTours(updated);
+                            }},
+                          ]);
+                        }}
+                      >
+                        <Ionicons name="arrow-undo-outline" size={14} color="#64748b" />
+                        <Text style={[s.actionTxt, { color: "#64748b" }]}>Thu hồi</Text>
+                      </TouchableOpacity>
+                    )}
                     {tour.status === "assigned" && (
                       <TouchableOpacity
                         style={[s.actionBtn, { backgroundColor: "#f3e8ff" }]}
@@ -555,6 +642,8 @@ export default function GuideTourManagement() {
                         Ghi chú
                       </Text>
                     </TouchableOpacity>
+
+                    
                     {(tour.status === "assigned" ||
                       tour.status === "registered") && (
                       <TouchableOpacity
