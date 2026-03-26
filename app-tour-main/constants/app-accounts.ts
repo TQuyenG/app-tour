@@ -130,7 +130,21 @@ const KEY_REQUESTS  = '@pending_guide_requests';
 export async function getAccounts(): Promise<AppAccount[]> {
   try {
     const raw = await AsyncStorage.getItem(KEY_ACCOUNTS);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const saved: AppAccount[] = JSON.parse(raw);
+      // Merge: giữ accounts user tự tạo, bổ sung seed accounts còn thiếu
+      const merged = [...saved];
+      for (const seed of SEED_ACCOUNTS) {
+        if (!merged.find(a => a.email.toLowerCase() === seed.email.toLowerCase())) {
+          merged.push(seed);
+        }
+      }
+      // Nếu có thay đổi thì lưu lại
+      if (merged.length !== saved.length) {
+        await AsyncStorage.setItem(KEY_ACCOUNTS, JSON.stringify(merged)).catch(() => {});
+      }
+      return merged;
+    }
     // First run: seed
     await AsyncStorage.setItem(KEY_ACCOUNTS, JSON.stringify(SEED_ACCOUNTS));
     return SEED_ACCOUNTS;

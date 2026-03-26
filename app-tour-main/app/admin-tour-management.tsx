@@ -37,6 +37,8 @@ interface Tour {
   tags: string[];
   color: string;
   date: string;
+  assignedGuideIds: string[];   // ← ID các HDV được phân công
+  assignedGuideNames: string[]; // ← Tên để hiển thị
 }
 
 const COLORS = ["#99bbff", "#93d5ff", "#b5f0c0", "#ffd6a5", "#d0b3ff"];
@@ -73,6 +75,8 @@ const EMPTY: Omit<Tour, "id"> = {
   tags: [],
   color: "#99bbff",
   date: "",
+  assignedGuideIds: [],
+  assignedGuideNames: [],
 };
 
 function formatPrice(raw: number | string): string {
@@ -96,6 +100,16 @@ export default function AdminTourManagement() {
   const [editing, setEditing] = useState<Tour | null>(null);
   const [form, setForm] = useState<Omit<Tour, "id">>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [allGuides, setAllGuides] = useState<{id:string;name:string;status?:string}[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@app_guides').then(raw => {
+      if (raw) {
+        const gs = JSON.parse(raw).filter((g:any) => g.status !== 'inactive');
+        setAllGuides(gs);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -139,6 +153,8 @@ export default function AdminTourManagement() {
       tags: t.tags,
       color: t.color,
       date: t.date,
+      assignedGuideIds: t.assignedGuideIds || [],
+      assignedGuideNames: t.assignedGuideNames || [],
     });
     setModalVisible(true);
   };
@@ -597,6 +613,74 @@ export default function AdminTourManagement() {
                 placeholderTextColor="#b0bdd8"
                 textAlignVertical="top"
               />
+
+              <FL t="📋 Phân công HDV (có thể chọn nhiều)" />
+              {allGuides.length === 0 ? (
+                <Text style={{ color: '#b0bdd8', fontSize: 12, marginBottom: 8 }}>
+                  Chưa có HDV nào trong hệ thống
+                </Text>
+              ) : (
+                <View style={{ gap: 6, marginBottom: 4 }}>
+                  {allGuides.map(g => {
+                    const selected = (form.assignedGuideIds || []).includes(g.id);
+                    return (
+                      <TouchableOpacity
+                        key={g.id}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 10,
+                          backgroundColor: selected ? '#eaf0ff' : '#f8faff',
+                          borderRadius: 10, padding: 10,
+                          borderWidth: 1,
+                          borderColor: selected ? '#4f7cff' : '#e4ebff',
+                        }}
+                        onPress={() => {
+                          const cur = form.assignedGuideIds || [];
+                          const curNames = form.assignedGuideNames || [];
+                          if (selected) {
+                            setForm(p => ({
+                              ...p,
+                              assignedGuideIds: cur.filter(id => id !== g.id),
+                              assignedGuideNames: curNames.filter(n => n !== g.name),
+                            }));
+                          } else {
+                            setForm(p => ({
+                              ...p,
+                              assignedGuideIds: [...cur, g.id],
+                              assignedGuideNames: [...curNames, g.name],
+                            }));
+                          }
+                        }}
+                      >
+                        <View style={{
+                          width: 22, height: 22, borderRadius: 6,
+                          backgroundColor: selected ? '#4f7cff' : '#e4ebff',
+                          alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {selected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: '#1f2a58', fontWeight: '700', fontSize: 13 }}>{g.name}</Text>
+                          <Text style={{ color: '#7a8cc2', fontSize: 11 }}>
+                            {(g as any).location || ''}{(g as any).experience ? ` · ${(g as any).experience}` : ''}
+                          </Text>
+                        </View>
+                        {selected && (
+                          <View style={{ backgroundColor: '#4f7cff', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>Được chọn</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+              {(form.assignedGuideIds || []).length > 0 && (
+                <View style={{ backgroundColor: '#dcfce7', borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                  <Text style={{ color: '#16a34a', fontSize: 11, fontWeight: '700' }}>
+                    ✅ Đã chọn {form.assignedGuideIds.length} HDV: {form.assignedGuideNames.join(', ')}
+                  </Text>
+                </View>
+              )}
 
               <TouchableOpacity
                 style={[s.saveBtn, saving && { opacity: 0.6 }]}

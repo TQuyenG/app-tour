@@ -16,7 +16,7 @@
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,14 +34,7 @@ interface GuestReview {
 const STEP_LABELS = ['Hoàn tất', 'Giải ngân', 'Đánh giá', 'Xong'];
 const fmt = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
 
-// Mock booking data – thực tế lấy từ params hoặc AsyncStorage
-const MOCK_BOOKING = {
-  id: `BK${Date.now().toString().slice(-6)}`,
-  tourName: 'Tour Đà Lạt mộng mơ 3N2Đ',
-  guideName: 'Nguyễn Văn Hùng',
-  guideId: 'g1',
-  totalAmount: 2950000,
-};
+// Booking data sẽ load từ params + AsyncStorage trong component
 
 // ─────────────────────────────────────────
 // AsyncStorage helpers
@@ -101,7 +94,34 @@ async function pushGuestNotification(msg: string) {
 export default function GuestPostTourScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [step, setStep] = useState<number>(0);
+  const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
+  const [step, setStep] = useState(0);
+  const [bookingData, setBookingData] = useState({
+    id: '',
+    tourName: 'Đang tải...',
+    guideName: '---',
+    guideId: '',
+    totalAmount: 0,
+  });
+
+  // Load booking thật từ AsyncStorage
+  useCallback(() => {
+    if (!bookingId) return;
+    AsyncStorage.getItem('@guest_bookings').then(raw => {
+      if (!raw) return;
+      const list = JSON.parse(raw);
+      const found = list.find((b: any) => b.id === bookingId);
+      if (found) {
+        setBookingData({
+          id: found.id,
+          tourName: found.tourName,
+          guideName: found.guideName,
+          guideId: found.guideId,
+          totalAmount: found.totalAmount,
+        });
+      }
+    }).catch(() => {});
+  }, [bookingId]);
 
   // Review state
   const [overallRating, setOverallRating] = useState(5);
@@ -109,7 +129,7 @@ export default function GuestPostTourScreen() {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const booking = MOCK_BOOKING;
+  const booking = bookingData;
   const commission = Math.round(booking.totalAmount * 0.12);
   const gatewayFee = Math.round(booking.totalAmount * 0.01);
   const payout = booking.totalAmount - commission - gatewayFee;

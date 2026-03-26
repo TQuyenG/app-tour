@@ -30,7 +30,9 @@ const SEED_REFUNDS: RefundRequest[] = [
   { id: "rf005", bookingId: "BK001005", tourName: "Hạ Long 3N2Đ - Vịnh kỳ quan",          guestName: "Hoàng Thị E",   guestPhone: "0955 333 444", amount: 3500000, refundPercent: 70,  feeAmount: 1050000,reason: "Dịch vụ không đúng mô tả, thiếu 2 bữa ăn, phòng khách sạn sai loại", category: "Lỗi nhà cung cấp", status: "pending",  createdAt: new Date(Date.now() - 1800000).toISOString(),   priority: "high",  evidence: "Ảnh phòng khách sạn, hóa đơn bữa ăn" },
   { id: "rf006", bookingId: "BK001006", tourName: "Mũi Né 2N1Đ - Đồi cát vàng",           guestName: "Nguyễn Minh F", guestPhone: "0966 444 555", amount: 1900000, refundPercent: 100, feeAmount: 0,      reason: "Xe đón bị trễ 2 tiếng, khách lỡ chuyến bay nối", category: "Lỗi nhà cung cấp",    status: "approved",   createdAt: new Date(Date.now() - 259200000).toISOString(), priority: "normal" },
   { id: "rf007", bookingId: "BK001007", tourName: "Côn Đảo 4N3Đ - Thiên đường",           guestName: "Trần Thanh G",  guestPhone: "0977 555 666", amount: 5300000, refundPercent: 100, feeAmount: 0,      reason: "HDV hủy tour đột ngột không báo trước, Partner vỡ lịch", category: "Lỗi nhà cung cấp", status: "pending",  createdAt: new Date(Date.now() - 900000).toISOString(),    priority: "high",  evidence: "Tin nhắn HDV hủy tour" },
-  { id: "rf008", bookingId: "BK001008", tourName: "Đà Nẵng 3N2Đ - Cầu Vàng kỳ vĩ",       guestName: "Bùi Thanh K",   guestPhone: "0922 777 888", amount: 3600000, refundPercent: 50,  feeAmount: 1800000,reason: "Tour cam kết xe Limousine nhưng đón bằng xe 16 chỗ cũ kỹ", category: "Lỗi nhà cung cấp", status: "processing",createdAt: new Date(Date.now() - 43200000).toISOString(),  priority: "high",  evidence: "Ảnh xe 16 chỗ, hợp đồng ghi Limousine" },
+  { id: "rf008", bookingId: "BK001008", tourName: "Đà Nẵng 3N2Đ - Cầu Vàng kỳ vĩ",       guestName: "Bùi Thanh K",   guestPhone: "0922 777 888", amount: 3600000, refundPercent: 50,  feeAmount: 1800000, reason: "Tour cam kết xe Limousine nhưng đón bằng xe 16 chỗ cũ kỹ", category: "Lỗi nhà cung cấp", status: "processing", createdAt: new Date(Date.now() - 43200000).toISOString(),  priority: "high",  evidence: "Ảnh xe 16 chỗ, hợp đồng ghi Limousine" },
+  { id: "rf011", bookingId: "BK001011", tourName: "Phong Nha 3N2Đ - Hang động kỳ vĩ",     guestName: "Lý Hoàng N",    guestPhone: "0911 234 567", amount: 4100000, refundPercent: 80,  feeAmount: 820000,  reason: "Khách sạn không đúng hạng sao như cam kết trong hợp đồng", category: "Lỗi nhà cung cấp", status: "processing", createdAt: new Date(Date.now() - 21600000).toISOString(),  priority: "normal", evidence: "Ảnh khách sạn, hợp đồng đặt tour" },
+  { id: "rf012", bookingId: "BK001012", tourName: "Huế 2N1Đ - Cố đô hoàng cung",          guestName: "Phan Thị P",    guestPhone: "0988 765 432", amount: 2750000, refundPercent: 60,  feeAmount: 1100000, reason: "Hướng dẫn viên thiếu chuyên nghiệp, không giải thích lịch sử", category: "Lỗi nhà cung cấp", status: "processing", createdAt: new Date(Date.now() - 18000000).toISOString(), priority: "normal", evidence: "Video clip, đánh giá khách đoàn" },
   { id: "rf009", bookingId: "BK001009", tourName: "Nha Trang 3N2Đ - Lặn san hô",          guestName: "Võ Minh L",     guestPhone: "0933 888 999", amount: 4200000, refundPercent: 100, feeAmount: 0,      reason: "Khách bị ốm đột ngột, có giấy chứng nhận bệnh viện", category: "Bất khả kháng",       status: "pending",    createdAt: new Date(Date.now() - 5400000).toISOString(),   priority: "normal", evidence: "Giấy ra viện, đơn thuốc bác sĩ" },
   { id: "rf010", bookingId: "BK001010", tourName: "Cần Thơ 2N1Đ - Chợ nổi Cái Răng",      guestName: "Đinh Hải M",    guestPhone: "0944 999 000", amount: 1250000, refundPercent: 30,  feeAmount: 875000, reason: "Hủy trước 48 tiếng theo chính sách", category: "Hủy theo chính sách",      status: "approved",   createdAt: new Date(Date.now() - 345600000).toISOString(), priority: "low" },
 ];
@@ -61,11 +63,29 @@ export default function StaffRefundManagement() {
   const [showModal, setShowModal]     = useState(false);
   const [rejectNote, setRejectNote]   = useState("");
   const [showRejectInput, setShowRejectInput] = useState(false);
-
+  const [showFinanceModal, setShowFinanceModal] = useState(false);
+  const [financeTarget, setFinanceTarget]       = useState<RefundRequest | null>(null);
+  const [financeNote, setFinanceNote]           = useState("");
+  const [financeMethod, setFinanceMethod]       = useState<"bank" | "momo" | "zalopay" | "cash">("bank");
+  const [financeAccount, setFinanceAccount]     = useState("");
+  // ── Confirm Modal (Duyệt hoàn / Từ chối) ──
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmAction, setConfirmAction]       = useState<"approved" | "rejected" | null>(null);
+  const [confirmTarget, setConfirmTarget]       = useState<RefundRequest | null>(null);
+  const [rejectReason, setRejectReason]         = useState("");
   useFocusEffect(useCallback(() => {
     AsyncStorage.getItem("@staff_refunds").then(raw => {
-      if (raw) setRefunds(JSON.parse(raw));
-      else {
+      if (raw) {
+        const saved: RefundRequest[] = JSON.parse(raw);
+        // Nếu data cũ không có bản ghi "processing" nào → reset để load seed mới
+        const hasProcessing = saved.some(r => r.status === "processing");
+        if (!hasProcessing) {
+          setRefunds(SEED_REFUNDS);
+          AsyncStorage.setItem("@staff_refunds", JSON.stringify(SEED_REFUNDS)).catch(() => {});
+        } else {
+          setRefunds(saved);
+        }
+      } else {
         setRefunds(SEED_REFUNDS);
         AsyncStorage.setItem("@staff_refunds", JSON.stringify(SEED_REFUNDS)).catch(() => {});
       }
@@ -77,30 +97,74 @@ export default function StaffRefundManagement() {
     await AsyncStorage.setItem("@staff_refunds", JSON.stringify(data)).catch(() => {});
   };
 
+ const execAction = async (id: string, action: "approved" | "rejected" | "processing") => {
+    const req = refunds.find(r => r.id === id);
+    const refundAmt = fmt(Math.round((req?.amount || 0) * (Number(req?.refundPercent) || 0) / 100));
+    const updated = refunds.map(r => r.id === id ? { ...r, status: action } : r);
+    await persist(updated);
+    const nRaw = await AsyncStorage.getItem("@guest_notifications").catch(() => null);
+    const nList = nRaw ? JSON.parse(nRaw) : [];
+    const msgs: Record<string, string> = {
+      approved:   `✅ Yêu cầu hoàn tiền ${refundAmt} đã được DUYỆT qua Auto-Refund. Tiền về ngay trong 5-15 phút.`,
+      rejected:   `❌ Yêu cầu hoàn tiền #${id} đã bị từ chối. Liên hệ CSKH để biết thêm chi tiết.`,
+      processing: `⏳ Yêu cầu #${id} đã chuyển Kế toán xử lý. Tiền hoàn về trong 3-5 ngày làm việc.`,
+    };
+    nList.unshift({ id: `n${Date.now()}`, message: msgs[action], read: false, createdAt: new Date().toISOString() });
+    await AsyncStorage.setItem("@guest_notifications", JSON.stringify(nList)).catch(() => {});
+    setShowModal(false);
+    window.alert(action === "approved" ? `✅ Đã duyệt hoàn tự động cho #${id}` : action === "rejected" ? `❌ Đã từ chối yêu cầu #${id}` : `📋 Đã chuyển #${id} sang Kế toán`);
+  };
+
   const handleAction = (id: string, action: "approved" | "rejected" | "processing") => {
     const req = refunds.find(r => r.id === id);
-    const labels: Record<string, string> = { approved: "Duyệt hoàn tiền", rejected: "Từ chối", processing: "Chuyển kế toán xử lý" };
-    Alert.alert(labels[action], `Xác nhận ${labels[action].toLowerCase()} yêu cầu #${id}?\n\nKhách: ${req?.guestName}\nSố tiền hoàn: ${fmt(Math.round((req?.amount || 0) * (req?.refundPercent || 0) / 100))}`, [
-      { text: "Hủy", style: "cancel" },
-      {
-        text: "Xác nhận",
-        onPress: async () => {
-          const updated = refunds.map(r => r.id === id ? { ...r, status: action } : r);
-          await persist(updated);
-          const nRaw = await AsyncStorage.getItem("@guest_notifications").catch(() => null);
-          const nList = nRaw ? JSON.parse(nRaw) : [];
-          const msgs: Record<string, string> = {
-            approved:   `✅ Yêu cầu hoàn tiền ${fmt(Math.round((req?.amount || 0) * (req?.refundPercent || 0) / 100))} đã được DUYỆT. Tiền về trong 3-5 ngày làm việc.`,
-            rejected:   `❌ Yêu cầu hoàn tiền #${id} đã bị từ chối. Liên hệ CSKH để biết thêm chi tiết.`,
-            processing: `⏳ Yêu cầu hoàn tiền #${id} đang được kế toán xử lý. Vui lòng chờ.`,
-          };
-          nList.unshift({ id: `n${Date.now()}`, message: msgs[action], read: false, createdAt: new Date().toISOString() });
-          await AsyncStorage.setItem("@guest_notifications", JSON.stringify(nList)).catch(() => {});
-          setShowModal(false);
-          Alert.alert("✅ Thành công", `Đã ${labels[action].toLowerCase()} yêu cầu #${id}`);
-        },
-      },
-    ]);
+    if (action === "processing") {
+      setFinanceTarget(req || null);
+      setFinanceNote("");
+      setFinanceMethod("bank");
+      setFinanceAccount("");
+      setShowFinanceModal(true);
+      return;
+    }
+    // Mở Confirm Modal đẹp
+    setConfirmTarget(req || null);
+    setConfirmAction(action);
+    setRejectReason("");
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmSubmit = async () => {
+    if (!confirmTarget || !confirmAction) return;
+    if (confirmAction === "rejected" && !rejectReason.trim()) {
+      // hiển thị lỗi inline, không dùng alert
+      return;
+    }
+    await execAction(confirmTarget.id, confirmAction);
+    setShowConfirmModal(false);
+  };
+
+  const handleFinanceSubmit = async () => {
+    if (!financeTarget) return;
+    if (!financeNote.trim()) { window.alert("⚠️ Vui lòng nhập ghi chú cho Kế toán!"); return; }
+    await execAction(financeTarget.id, "processing");
+    // Lưu thêm finance note vào notification kế toán
+    const fRaw = await AsyncStorage.getItem("@finance_notifications").catch(() => null);
+    const fList = fRaw ? JSON.parse(fRaw) : [];
+    const methodLabel: Record<string, string> = { bank: "Chuyển khoản ngân hàng", momo: "Ví MoMo", zalopay: "ZaloPay", cash: "Tiền mặt tại quầy" };
+    fList.unshift({
+      id: `fn${Date.now()}`,
+      refundId: financeTarget.id,
+      bookingId: financeTarget.bookingId,
+      guestName: financeTarget.guestName,
+      amount: Math.round((financeTarget.amount || 0) * (Number(financeTarget.refundPercent) || 0) / 100),
+      method: financeMethod,
+      methodLabel: methodLabel[financeMethod],
+      account: financeAccount,
+      note: financeNote,
+      status: "pending_transfer",
+      createdAt: new Date().toISOString(),
+    });
+    await AsyncStorage.setItem("@finance_notifications", JSON.stringify(fList)).catch(() => {});
+    setShowFinanceModal(false);
   };
 
   const openDetail = (r: RefundRequest) => { setSelected(r); setShowModal(true); setShowRejectInput(false); setRejectNote(""); };
@@ -179,7 +243,7 @@ export default function StaffRefundManagement() {
       </View>
 
       {/* ── Filters ─────────────────────────────────────────── */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterScroll} contentContainerStyle={s.filterRow}>
         {FILTERS.map(([k, l]) => (
           <TouchableOpacity
             key={k}
@@ -206,7 +270,7 @@ export default function StaffRefundManagement() {
           filtered.map(r => {
             const catStyle = CATEGORY_COLOR[r.category] || { color: "#7a8cc2", bg: "#f1f5f9" };
             const priMeta = PRIORITY_META[r.priority] ?? PRIORITY_META.normal;
-            const netRefund = Math.round(r.amount * r.refundPercent / 100);
+            const netRefund = Math.round((r.amount || 0) * (Number(r.refundPercent) || 0) / 100);
             return (
               <TouchableOpacity key={r.id} style={[s.card, r.priority === "high" && r.status === "pending" && s.cardHighPriority]} onPress={() => openDetail(r)} activeOpacity={0.8}>
                 {/* Card Header */}
@@ -284,7 +348,7 @@ export default function StaffRefundManagement() {
                 )}
 
                 {/* Actions */}
-                {r.status === "pending" && (
+                {(r.status === "pending" || r.status === "processing") && (
                   <View style={s.actionRow}>
                     <TouchableOpacity
                       style={[s.actionBtn, { backgroundColor: "#dcfce7", flex: 1 }]}
@@ -293,13 +357,15 @@ export default function StaffRefundManagement() {
                       <Ionicons name="checkmark-circle-outline" size={16} color="#16a34a" />
                       <Text style={[s.actionTxt, { color: "#16a34a" }]}>Duyệt hoàn</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[s.actionBtn, { backgroundColor: "#eaf0ff", flex: 1 }]}
-                      onPress={() => handleAction(r.id, "processing")}
-                    >
-                      <Ionicons name="business-outline" size={16} color="#2856d6" />
-                      <Text style={[s.actionTxt, { color: "#2856d6" }]}>Kế toán</Text>
-                    </TouchableOpacity>
+                    {r.status === "pending" && (
+                      <TouchableOpacity
+                        style={[s.actionBtn, { backgroundColor: "#eaf0ff", flex: 1 }]}
+                        onPress={() => handleAction(r.id, "processing")}
+                      >
+                        <Ionicons name="business-outline" size={16} color="#2856d6" />
+                        <Text style={[s.actionTxt, { color: "#2856d6" }]}>Kế toán</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={[s.actionBtn, { backgroundColor: "#fee2e2", flex: 1 }]}
                       onPress={() => handleAction(r.id, "rejected")}
@@ -314,6 +380,206 @@ export default function StaffRefundManagement() {
           })
         )}
       </ScrollView>
+
+      {/* ── Confirm Modal (Duyệt hoàn / Từ chối) ───────────── */}
+      <Modal visible={showConfirmModal} transparent animationType="fade" onRequestClose={() => setShowConfirmModal(false)}>
+        <View style={sc.overlay}>
+          <View style={sc.card}>
+
+            {/* Icon + Tiêu đề */}
+            {confirmAction === "approved" ? (
+              <View style={[sc.iconWrap, { backgroundColor: "#dcfce7" }]}>
+                <Ionicons name="checkmark-circle" size={32} color="#16a34a" />
+              </View>
+            ) : (
+              <View style={[sc.iconWrap, { backgroundColor: "#fee2e2" }]}>
+                <Ionicons name="close-circle" size={32} color="#dc2626" />
+              </View>
+            )}
+
+            <Text style={sc.title}>
+              {confirmAction === "approved" ? "Xác nhận Duyệt hoàn" : "Xác nhận Từ chối"}
+            </Text>
+            <Text style={sc.subtitle}>
+              {confirmAction === "approved"
+                ? "Hệ thống sẽ tự động hoàn tiền về phương thức thanh toán gốc của khách."
+                : "Yêu cầu sẽ bị từ chối và khách hàng sẽ nhận thông báo."}
+            </Text>
+
+            {/* Thông tin yêu cầu */}
+            <View style={sc.infoBox}>
+              <View style={sc.infoRow}>
+                <Text style={sc.infoLabel}>Yêu cầu</Text>
+                <Text style={sc.infoVal}>#{confirmTarget?.id} · {confirmTarget?.bookingId}</Text>
+              </View>
+              <View style={sc.divider} />
+              <View style={sc.infoRow}>
+                <Text style={sc.infoLabel}>Khách hàng</Text>
+                <Text style={sc.infoVal}>{confirmTarget?.guestName}</Text>
+              </View>
+              <View style={sc.divider} />
+              <View style={sc.infoRow}>
+                <Text style={sc.infoLabel}>Tour</Text>
+                <Text style={[sc.infoVal, { flex: 1, textAlign: "right" }]} numberOfLines={1}>{confirmTarget?.tourName}</Text>
+              </View>
+              <View style={sc.divider} />
+              <View style={sc.infoRow}>
+                <Text style={sc.infoLabel}>Số tiền hoàn</Text>
+                <Text style={[sc.infoVal, { color: confirmAction === "approved" ? "#16a34a" : "#dc2626", fontWeight: "800" }]}>
+                  {fmt(Math.round((confirmTarget?.amount || 0) * (Number(confirmTarget?.refundPercent) || 0) / 100))}
+                </Text>
+              </View>
+            </View>
+
+            {/* Ô lý do từ chối */}
+            {confirmAction === "rejected" && (
+              <View style={{ width: "100%", marginBottom: 4 }}>
+                <Text style={sc.reasonLabel}>Lý do từ chối <Text style={{ color: "#dc2626" }}>*</Text></Text>
+                <TextInput
+                  style={[sc.reasonInput, !rejectReason.trim() && showConfirmModal ? sc.reasonInputError : null]}
+                  placeholder="VD: Hủy sau 24h không đủ điều kiện hoàn tiền theo chính sách..."
+                  placeholderTextColor="#b0bdd8"
+                  value={rejectReason}
+                  onChangeText={setRejectReason}
+                  multiline
+                  numberOfLines={3}
+                />
+                {!rejectReason.trim() && (
+                  <Text style={sc.errorTxt}>Vui lòng nhập lý do từ chối</Text>
+                )}
+              </View>
+            )}
+
+            {/* Buttons */}
+            <View style={sc.btnRow}>
+              <TouchableOpacity style={sc.cancelBtn} onPress={() => setShowConfirmModal(false)}>
+                <Text style={sc.cancelTxt}>Hủy bỏ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[sc.confirmBtn, { backgroundColor: confirmAction === "approved" ? "#16a34a" : "#dc2626" }]}
+                onPress={handleConfirmSubmit}
+              >
+                <Ionicons
+                  name={confirmAction === "approved" ? "checkmark-circle-outline" : "close-circle-outline"}
+                  size={16} color="#fff"
+                />
+                <Text style={sc.confirmTxt}>
+                  {confirmAction === "approved" ? "Duyệt hoàn ngay" : "Xác nhận từ chối"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Finance Modal ────────────────────────────────────── */}
+      <Modal visible={showFinanceModal} transparent animationType="slide" onRequestClose={() => setShowFinanceModal(false)}>
+        <View style={sf.overlay}>
+          <View style={sf.sheet}>
+            {/* Header */}
+            <View style={sf.header}>
+              <View style={sf.headerIcon}>
+                <Ionicons name="business-outline" size={20} color="#2856d6" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={sf.headerTitle}>Chuyển Kế toán xử lý</Text>
+                <Text style={sf.headerSub}>#{financeTarget?.id} · {financeTarget?.guestName}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowFinanceModal(false)} style={sf.closeBtn}>
+                <Ionicons name="close" size={20} color="#7a8cc2" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false}>
+              {/* Amount Summary */}
+              <View style={sf.amountBox}>
+                <View style={sf.amountItem}>
+                  <Text style={sf.amountLabel}>Giá tour</Text>
+                  <Text style={sf.amountVal}>{fmt(financeTarget?.amount || 0)}</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={16} color="#c0cbe8" />
+                <View style={sf.amountItem}>
+                  <Text style={sf.amountLabel}>Hoàn {financeTarget?.refundPercent}%</Text>
+                  <Text style={[sf.amountVal, { color: "#16a34a", fontSize: 16 }]}>
+                    {fmt(Math.round((financeTarget?.amount || 0) * (Number(financeTarget?.refundPercent) || 0) / 100))}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Phương thức hoàn */}
+              <Text style={sf.sectionLabel}>Phương thức hoàn tiền</Text>
+              <View style={sf.methodRow}>
+                {([
+                  { key: "bank",    icon: "card-outline",       label: "Ngân hàng" },
+                  { key: "momo",    icon: "wallet-outline",      label: "MoMo" },
+                  { key: "zalopay", icon: "phone-portrait-outline", label: "ZaloPay" },
+                  { key: "cash",    icon: "cash-outline",        label: "Tiền mặt" },
+                ] as const).map(m => (
+                  <TouchableOpacity
+                    key={m.key}
+                    style={[sf.methodChip, financeMethod === m.key && sf.methodChipActive]}
+                    onPress={() => setFinanceMethod(m.key)}
+                  >
+                    <Ionicons name={m.icon} size={16} color={financeMethod === m.key ? "#fff" : "#7a8cc2"} />
+                    <Text style={[sf.methodTxt, financeMethod === m.key && { color: "#fff" }]}>{m.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Số tài khoản / SĐT */}
+              {financeMethod !== "cash" && (
+                <>
+                  <Text style={sf.sectionLabel}>
+                    {financeMethod === "bank" ? "Số tài khoản ngân hàng" : financeMethod === "momo" ? "Số điện thoại MoMo" : "Số điện thoại ZaloPay"}
+                  </Text>
+                  <TextInput
+                    style={sf.input}
+                    placeholder={financeMethod === "bank" ? "VD: 0123456789 - Vietcombank - Trần Văn B" : "VD: 0912 345 678"}
+                    placeholderTextColor="#b0bdd8"
+                    value={financeAccount}
+                    onChangeText={setFinanceAccount}
+                    keyboardType="default"
+                  />
+                </>
+              )}
+
+              {/* Ghi chú cho Kế toán */}
+              <Text style={sf.sectionLabel}>
+                Ghi chú cho Kế toán <Text style={{ color: "#dc2626" }}>*</Text>
+              </Text>
+              <TextInput
+                style={[sf.input, sf.inputMulti]}
+                placeholder={"VD: Hoàn 100% do lỗi Partner hủy tour\nKhách yêu cầu nhận qua MoMo SĐT: 0912345678"}
+                placeholderTextColor="#b0bdd8"
+                value={financeNote}
+                onChangeText={setFinanceNote}
+                multiline
+                numberOfLines={3}
+              />
+
+              {/* Info box */}
+              <View style={sf.infoBox}>
+                <Ionicons name="information-circle-outline" size={15} color="#2856d6" />
+                <Text style={sf.infoTxt}>
+                  Sau khi xác nhận, yêu cầu sẽ chuyển sang tab <Text style={{ fontWeight: "800" }}>Đang xử lý</Text> và Kế toán sẽ nhận thông báo để tiến hành giải ngân.
+                </Text>
+              </View>
+            </ScrollView>
+
+            {/* Footer buttons */}
+            <View style={sf.footer}>
+              <TouchableOpacity style={sf.cancelBtn} onPress={() => setShowFinanceModal(false)}>
+                <Text style={sf.cancelTxt}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={sf.submitBtn} onPress={handleFinanceSubmit}>
+                <Ionicons name="business-outline" size={16} color="#fff" />
+                <Text style={sf.submitTxt}>Chuyển Kế toán</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <StaffTabBar activeRoute="/staff-refund-management" />
     </View>
@@ -332,10 +598,11 @@ const s = StyleSheet.create({
   kpiCard:          { flex: 1, borderRadius: 12, borderWidth: 1, padding: 10, alignItems: "center" },
   kpiValue:         { fontWeight: "900", fontSize: 18, letterSpacing: -0.5 },
   kpiLabel:         { color: "#7a8cc2", fontSize: 9, fontWeight: "600", marginTop: 2, textAlign: "center" },
-  searchWrap:       { backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 10 },
+  searchWrap:       { backgroundColor: "#fff", paddingHorizontal: 14, paddingTop: 10, paddingBottom: 8 },
   searchBox:        { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f3f7ff", borderWidth: 1, borderColor: "#e4ebff", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   searchInput:      { flex: 1, color: "#1f2a58", fontSize: 14 },
-  filterRow:        { gap: 8, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
+  filterScroll:     { minHeight: 52, flexShrink: 0, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
+  filterRow:        { gap: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
   filterChip:       { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, borderWidth: 1, borderColor: "#dfe7ff", backgroundColor: "#f8faff", paddingHorizontal: 12, paddingVertical: 7 },
   filterActive:     { backgroundColor: "#d97706", borderColor: "#d97706" },
   filterTxt:        { color: "#6c7fb7", fontSize: 12, fontWeight: "600" },
@@ -373,4 +640,54 @@ const s = StyleSheet.create({
   actionRow:        { flexDirection: "row", gap: 8, marginTop: 4 },
   actionBtn:        { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, paddingVertical: 10 },
   actionTxt:        { fontSize: 12, fontWeight: "700" },
+});
+
+const sf = StyleSheet.create({
+  overlay:          { flex: 1, backgroundColor: "rgba(15,25,60,0.45)", justifyContent: "flex-end" },
+  sheet:            { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 30 },
+  header:           { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
+  headerIcon:       { width: 40, height: 40, borderRadius: 12, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
+  headerTitle:      { fontSize: 16, fontWeight: "800", color: "#1f2a58" },
+  headerSub:        { fontSize: 11, color: "#7a8cc2", marginTop: 1 },
+  closeBtn:         { width: 32, height: 32, borderRadius: 8, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
+  amountBox:        { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#f3f7ff", borderRadius: 14, margin: 16, padding: 14 },
+  amountItem:       { flex: 1, alignItems: "center" },
+  amountLabel:      { color: "#94a3b8", fontSize: 10, fontWeight: "600", marginBottom: 4 },
+  amountVal:        { color: "#1f2a58", fontSize: 14, fontWeight: "800" },
+  sectionLabel:     { color: "#7a8cc2", fontSize: 11, fontWeight: "700", marginHorizontal: 16, marginTop: 14, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },
+  methodRow:        { flexDirection: "row", gap: 8, paddingHorizontal: 16, flexWrap: "wrap" },
+  methodChip:       { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1.5, borderColor: "#dfe7ff", backgroundColor: "#f8faff", paddingHorizontal: 12, paddingVertical: 8 },
+  methodChipActive: { backgroundColor: "#2856d6", borderColor: "#2856d6" },
+  methodTxt:        { fontSize: 12, fontWeight: "700", color: "#6c7fb7" },
+  input:            { marginHorizontal: 16, borderWidth: 1.5, borderColor: "#e4ebff", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 13, color: "#1f2a58", backgroundColor: "#f8faff" },
+  inputMulti:       { minHeight: 80, textAlignVertical: "top", paddingTop: 11, marginTop: 0 },
+  infoBox:          { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "#eaf0ff", borderRadius: 12, margin: 16, padding: 12 },
+  infoTxt:          { flex: 1, color: "#2856d6", fontSize: 12, lineHeight: 18 },
+  footer:           { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#f0f4ff" },
+  cancelBtn:        { flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: "#dfe7ff", paddingVertical: 13, alignItems: "center" },
+  cancelTxt:        { color: "#7a8cc2", fontWeight: "700", fontSize: 14 },
+  submitBtn:        { flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#2856d6", borderRadius: 12, paddingVertical: 13 },
+  submitTxt:        { color: "#fff", fontWeight: "800", fontSize: 14 },
+});
+
+const sc = StyleSheet.create({
+  overlay:          { flex: 1, backgroundColor: "rgba(15,25,60,0.5)", justifyContent: "center", alignItems: "center", paddingHorizontal: 24 },
+  card:             { backgroundColor: "#fff", borderRadius: 24, padding: 24, width: "100%", alignItems: "center", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 10 },
+  iconWrap:         { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  title:            { fontSize: 18, fontWeight: "900", color: "#1f2a58", marginBottom: 6, textAlign: "center" },
+  subtitle:         { fontSize: 12, color: "#7a8cc2", textAlign: "center", lineHeight: 18, marginBottom: 16, paddingHorizontal: 4 },
+  infoBox:          { width: "100%", backgroundColor: "#f8faff", borderRadius: 14, borderWidth: 1, borderColor: "#e4ebff", paddingHorizontal: 14, paddingVertical: 4, marginBottom: 16 },
+  infoRow:          { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10 },
+  infoLabel:        { color: "#94a3b8", fontSize: 12, fontWeight: "600" },
+  infoVal:          { color: "#1f2a58", fontSize: 12, fontWeight: "700", maxWidth: "60%" },
+  divider:          { height: 1, backgroundColor: "#f0f4ff" },
+  reasonLabel:      { color: "#7a8cc2", fontSize: 11, fontWeight: "700", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },
+  reasonInput:      { borderWidth: 1.5, borderColor: "#e4ebff", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 13, color: "#1f2a58", backgroundColor: "#f8faff", minHeight: 75, textAlignVertical: "top" },
+  reasonInputError: { borderColor: "#fca5a5" },
+  errorTxt:         { color: "#dc2626", fontSize: 11, marginTop: 4, marginLeft: 2 },
+  btnRow:           { flexDirection: "row", gap: 10, width: "100%", marginTop: 6 },
+  cancelBtn:        { flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: "#dfe7ff", paddingVertical: 13, alignItems: "center", justifyContent: "center" },
+  cancelTxt:        { color: "#7a8cc2", fontWeight: "700", fontSize: 14 },
+  confirmBtn:       { flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, paddingVertical: 13 },
+  confirmTxt:       { color: "#fff", fontWeight: "800", fontSize: 14 },
 });

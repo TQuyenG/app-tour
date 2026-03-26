@@ -9,50 +9,20 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AdminTabBar } from "@/components/AdminTabBar";
 
 const MENU_ITEMS = [
-  {
-    icon: "map-outline",
-    label: "Quản lý Tour",
-    route: "/admin-tour-management",
-    color: "#4f7cff",
-  },
-  {
-    icon: "people-outline",
-    label: "Quản lý HDV",
-    route: "/admin-guide-management",
-    color: "#22c55e",
-  },
-  {
-    icon: "ticket-outline",
-    label: "Quản lý Voucher",
-    route: "/admin-voucher-management",
-    color: "#f59e0b",
-  },
-  {
-    icon: "bar-chart-outline",
-    label: "Báo cáo & Thống kê",
-    route: "/admin-report",
-    color: "#a855f7",
-  },
-  {
-    icon: "notifications-outline",
-    label: "Thông báo hệ thống",
-    route: "/notifications",
-    color: "#4f7cff",
-  },
-  {
-    icon: "shield-checkmark-outline",
-    label: "Bảo mật & Quyền hạn",
-    route: "/settings",
-    color: "#ef4444",
-  },
-  {
-    icon: "create-outline",
-    label: "Cập nhật thông tin",
-    route: "/admin-profile-edit",
-    color: "#4f7cff",
-  },
+  { icon: "map-outline",               label: "Quản lý Tour",        route: "/admin-tour-management",   color: "#4f7cff" },
+  { icon: "people-outline",            label: "Quản lý HDV",         route: "/admin-guide-management",  color: "#22c55e" },
+  { icon: "person-add-outline",        label: "Duyệt đăng ký HDV",  route: "/admin-guide-requests",    color: "#d97706" },
+  { icon: "person-circle-outline",     label: "Quản lý Users",       route: "/admin-users",             color: "#06b6d4" },
+  { icon: "ticket-outline",            label: "Quản lý Voucher",     route: "/admin-voucher-management",color: "#f59e0b" },
+  { icon: "flash-outline",             label: "Flash Sale / Deal",   route: "/admin-flash-sale",        color: "#ef4444" },
+  { icon: "image-outline",             label: "Quản lý Banner",      route: "/admin-banner",            color: "#8b5cf6" },
+  { icon: "cash-outline",              label: "Cấu hình Commission", route: "/admin-commission",        color: "#16a34a" },
+  { icon: "warning-outline",           label: "Khiếu nại & Tranh chấp",route: "/admin-complaints",     color: "#dc2626" },
+  { icon: "bar-chart-outline",         label: "Báo cáo & Thống kê", route: "/admin-report",            color: "#a855f7" },
+  { icon: "settings-outline",          label: "Cài đặt hệ thống",   route: "/admin-settings",          color: "#64748b" },
 ] as const;
 
 export default function AdminProfile() {
@@ -212,76 +182,7 @@ export default function AdminProfile() {
           <Text style={styles.logoutText}>Đăng xuất</Text>
         </TouchableOpacity>
       </ScrollView>
-      {/* Admin Bottom Tab */}
-      <View
-        style={[
-          styles.tabBar,
-          { paddingBottom: insets.bottom > 0 ? insets.bottom : 8 },
-        ]}
-      >
-        {(
-          [
-            {
-              icon: "home-outline",
-              iconA: "home",
-              label: "Tổng quan",
-              route: "/admin-home",
-            },
-            {
-              icon: "map-outline",
-              iconA: "map",
-              label: "Tour",
-              route: "/admin-tour-management",
-            },
-            {
-              icon: "people-outline",
-              iconA: "people",
-              label: "HDV",
-              route: "/admin-guide-management",
-            },
-            {
-              icon: "bar-chart-outline",
-              iconA: "bar-chart",
-              label: "Báo cáo",
-              route: "/admin-report",
-            },
-            {
-              icon: "person-outline",
-              iconA: "person",
-              label: "Profile",
-              route: "/admin-profile",
-            },
-          ] as const
-        ).map((tab) => {
-          const isActive = tab.route === "/admin-profile";
-          return (
-            <TouchableOpacity
-              key={tab.route}
-              style={styles.tabItem}
-              onPress={() => router.push(tab.route as any)}
-              activeOpacity={0.75}
-            >
-              <View
-                style={[
-                  styles.tabIconWrap,
-                  isActive && styles.tabIconWrapActive,
-                ]}
-              >
-                <Ionicons
-                  name={isActive ? (tab.iconA as any) : (tab.icon as any)}
-                  size={20}
-                  color={isActive ? "#fff" : "#94a8d8"}
-                />
-              </View>
-              <Text
-                style={[styles.tabLabel, isActive && styles.tabLabelActive]}
-              >
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      <AdminTabBar role="admin" activeRoute="/admin-profile" />
     </View>
   );
 }
@@ -464,36 +365,3 @@ const styles = StyleSheet.create({
   logoutText: { color: "#ef4444", fontWeight: "700", fontSize: 15 },
 });
 
-const tabSt = StyleSheet.create({
-  bar: {
-    backgroundColor: "#fff",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 4,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#e8eeff",
-    shadowColor: "#2a4caf",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  item: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingVertical: 2,
-  },
-  iconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconWrapActive: { backgroundColor: "#4f7cff" },
-  label: { color: "#94a8d8", fontSize: 10, fontWeight: "600" },
-  labelActive: { color: "#4f7cff" },
-});

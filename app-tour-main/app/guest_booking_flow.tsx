@@ -25,8 +25,9 @@
  *   @admin_reports       – báo cáo admin
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Modal,
@@ -39,7 +40,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 type PayMethod  = 'card' | 'bank' | 'wallet';
 type BookStatus = 'pending_guide'|'guide_accepted'|'guide_rejected'
                 |'checked_in'|'on_tour'|'completed'|'cancelled';
-interface AppTour  { id:string; name:string; category:string; departure:string; duration:string; date?:string; price:string; priceRaw?:number; rating:number; seatsLeft:number; color?:string; description?:string; }
+interface AppTour  { id:string; name:string; category:string; departure:string; duration:string; date?:string; price:string; priceRaw?:number; rating:number; seatsLeft:number; color?:string; description?:string; assignedGuideIds?:string[]; }
 interface AppGuide { id:string; name:string; location:string; experience:string; skills:string[]|string; rating:number; tours:number; match:number; status?:string; phone?:string; }
 interface ChatMsg  { from:'guest'|'guide'; text:string; time:string; }
 interface GuestBooking {
@@ -212,11 +213,18 @@ function Row({label,val,bold,highlight}:{label:string;val:string;bold?:boolean;h
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────
 export default function GuestBookingFlow(){
-  const router=useRouter();
-  const insets=useSafeAreaInsets();
+  const router  = useRouter();
+  const insets  = useSafeAreaInsets();
+  const { bookingId, resumeStep } = useLocalSearchParams<{ bookingId: string; resumeStep: string }>();
 
   const [entryMode,setEntryMode]=useState<'tour'|'guide'>('tour');
   const [step,setStep]=useState(0);
+  const [appliedVoucher, setAppliedVoucher] = useState<{
+    code: string; type: string; value: number;
+    minOrder: number; maxDiscount: number; desc: string; voucherId: string;
+  } | null>(null);
+  const [voucherInput, setVoucherInput] = useState("");
+  const [voucherError, setVoucherError] = useState("");
   const [tours,setTours]=useState<AppTour[]>([]);
   const [guides,setGuides]=useState<AppGuide[]>([]);
   const [loading,setLoading]=useState(true);
@@ -245,6 +253,22 @@ export default function GuestBookingFlow(){
   const [reviewDone,setReviewDone]=useState(false);
 
   // Load data
+  // Resume booking đang có nếu được truyền bookingId
+  useEffect(() => {
+    if (!bookingId) return;
+    AsyncStorage.getItem('@guest_bookings').then(raw => {
+      if (!raw) return;
+      const list = JSON.parse(raw);
+      const found = list.find((b: any) => b.id === bookingId);
+      if (found) {
+        setBooking(found);
+        const s = resumeStep ? parseInt(resumeStep as string) : 4;
+        setStep(s);
+      }
+    }).catch(() => {});
+  }, [bookingId]);
+
+  // Load data
   useEffect(()=>{
     Promise.all([
       AsyncStorage.getItem('@app_tours').catch(()=>null),
@@ -252,8 +276,13 @@ export default function GuestBookingFlow(){
     ]).then(([tr,gr])=>{
       if(tr) setTours(JSON.parse(tr).filter((t:AppTour)=>t.seatsLeft>0));
       if(gr){
-        const gs:AppGuide[]=JSON.parse(gr).filter((g:AppGuide)=>g.status!=='inactive')
+        let gs:AppGuide[]=JSON.parse(gr).filter((g:AppGuide)=>g.status!=='inactive')
           .map((g:AppGuide)=>({...g,skills:Array.isArray(g.skills)?g.skills:typeof g.skills==='string'?(g.skills as string).split(',').map((s:string)=>s.trim()):[] }));
+        // Lọc HDV theo tour được phân công nếu đã chọn tour
+        if(tr){
+          const tourList = JSON.parse(tr);
+          // Sẽ lọc lại khi user chọn tour — lưu toàn bộ vào guides trước
+        }
         setGuides(gs);
       }
       setLoading(false);
@@ -274,6 +303,15 @@ export default function GuestBookingFlow(){
   const servicesTotal=selectedAddons.reduce((s,id)=>{const a=ADDONS.find(x=>x.id===id);return s+(a?.price||0);},0);
   const tourPrice=selectedTour?.priceRaw??(Number(String(selectedTour?.price||'0').replace(/[^0-9]/g,''))||0);
   const totalAmount=tourPrice*guests+servicesTotal;
+  const discountAmount = appliedVoucher
+    ? (() => {
+        if ((totalAmount as number) < (appliedVoucher.minOrder || 0)) return 0;
+        if (appliedVoucher.type === 'fixed') return Math.min(appliedVoucher.value, totalAmount as number);
+        const pct = ((totalAmount as number) * appliedVoucher.value) / 100;
+        return appliedVoucher.maxDiscount ? Math.min(pct, appliedVoucher.maxDiscount) : pct;
+      })()
+    : 0;
+  const finalAmount = (totalAmount as number) - discountAmount;
   const skills=(g:AppGuide):string[]=>Array.isArray(g.skills)?g.skills as string[]:typeof g.skills==='string'?(g.skills as string).split(',').map(s=>s.trim()):[];
   const formatPrice=(t:AppTour)=>{ if(t.price&&t.price.includes('đ')) return t.price; const n=t.priceRaw??Number(String(t.price).replace(/[^0-9]/g,'')); return n>0?`${n.toLocaleString('vi-VN')}đ`:t.price; };
 
@@ -284,7 +322,7 @@ export default function GuestBookingFlow(){
     const bk:GuestBooking={
       id,tourId:selectedTour.id,tourName:selectedTour.name,tourDate:selectedTour.date||'---',tourPrice,
       guideId:selectedGuide.id,guideName:selectedGuide.name,guidePhone:selectedGuide.phone||'---',
-      guests,servicesTotal,totalAmount,paymentMethod:payMethod,status:'pending_guide',
+      guests,servicesTotal,totalAmount:finalAmount,paymentMethod:payMethod,status:'pending_guide',
       createdAt:new Date().toISOString(),holdUntil:new Date(Date.now()+15*60*1000).toISOString(),
       meetingPoint:selectedTour.departure?`Xuất phát từ ${selectedTour.departure}`:'---',
       services:ADDONS.filter(a=>selectedAddons.includes(a.id)).map(a=>({label:a.label,price:a.price})),
@@ -293,7 +331,40 @@ export default function GuestBookingFlow(){
     setBooking(bk); await saveBk(bk); await notifyGuide(bk);
     await notifyGuest(`Đã gửi yêu cầu booking "${selectedTour.name}" đến HDV ${selectedGuide.name}. Chờ xác nhận...`);
     await sendAdminReport(bk,'BOOKING_CREATED');
+
+    // ✅ Đánh dấu voucher đã dùng
+    if (appliedVoucher) {
+      const gRaw = await AsyncStorage.getItem("@guest_vouchers").catch(() => null);
+      if (gRaw) {
+        const gList = JSON.parse(gRaw).map((v: any) =>
+          v.code === appliedVoucher.code ? { ...v, used: true } : v
+        );
+        await AsyncStorage.setItem("@guest_vouchers", JSON.stringify(gList)).catch(() => {});
+      }
+      const pRaw = await AsyncStorage.getItem("@promo_codes").catch(() => null);
+      if (pRaw) {
+        const pList = JSON.parse(pRaw).map((p: any) =>
+          p.code === appliedVoucher.code ? { ...p, usedCount: (p.usedCount || 0) + 1 } : p
+        );
+        await AsyncStorage.setItem("@promo_codes", JSON.stringify(pList)).catch(() => {});
+      }
+    }
+
+    // ✅ Cộng điểm loyalty (1 điểm / 10.000đ)
+    const earnedPoints = Math.floor((tourPrice as number) / 10000);
+    if (earnedPoints > 0) {
+      const profRaw = await AsyncStorage.getItem("@app_profile").catch(() => null);
+      const prof = profRaw ? JSON.parse(profRaw) : {};
+      const newPoints = (prof.loyaltyPoints || 0) + earnedPoints;
+      await AsyncStorage.setItem("@app_profile", JSON.stringify({ ...prof, loyaltyPoints: newPoints })).catch(() => {});
+      const hRaw = await AsyncStorage.getItem("@loyalty_history").catch(() => null);
+      const hList = hRaw ? JSON.parse(hRaw) : [];
+      hList.unshift({ id: `h${Date.now()}`, type: "earn", points: earnedPoints, desc: `Đặt tour ${selectedTour.name}`, date: new Date().toLocaleDateString("vi-VN") });
+      await AsyncStorage.setItem("@loyalty_history", JSON.stringify(hList)).catch(() => {});
+    }
+
     setStep(4);
+  
   };
 
   const simulateGuideAccept=async()=>{
@@ -346,6 +417,46 @@ export default function GuestBookingFlow(){
   };
 
   // Progress
+  // Load voucher được chọn từ kho voucher (nếu có)
+  React.useEffect(() => {
+    AsyncStorage.getItem("@active_voucher").then(raw => {
+      if (raw) {
+        setAppliedVoucher(JSON.parse(raw));
+        AsyncStorage.removeItem("@active_voucher").catch(() => {});
+      }
+    }).catch(() => {});
+
+    // ✅ Nếu @promo_codes trống → sync từ @admin_vouchers hoặc dùng seed mặc định
+    AsyncStorage.getItem("@promo_codes").then(async raw => {
+      if (!raw || JSON.parse(raw).length === 0) {
+        const aRaw = await AsyncStorage.getItem("@admin_vouchers").catch(() => null);
+        if (aRaw) {
+          const adminV: any[] = JSON.parse(aRaw);
+          const promoCodes = adminV.map(v => ({
+            id: v.id, code: v.code, type: v.type,
+            value: Number(v.discount),
+            minOrder: Number(v.minOrder) || 0,
+            maxDiscount: Number(v.maxDiscount) || 0,
+            description: v.description,
+            expiry: v.expiry, color: v.color,
+            active: v.status === "active",
+            usedCount: v.used || 0, limit: v.limit || 100,
+            source: "admin",
+          }));
+          await AsyncStorage.setItem("@promo_codes", JSON.stringify(promoCodes)).catch(() => {});
+        } else {
+          // Seed mặc định nếu chưa có gì
+          const defaultCodes = [
+            {id:"p1",code:"SUMMER35",type:"percent",value:35,minOrder:2000000,maxDiscount:500000,description:"Ưu đãi mùa hè – Giảm 35% tour biển & cao nguyên",expiry:"30/06/2026",color:"#4f7cff",active:true,usedCount:0,limit:100,source:"system"},
+            {id:"p2",code:"NEWUSER200",type:"fixed",value:200000,minOrder:1500000,maxDiscount:200000,description:"Chào mừng thành viên mới – Giảm 200.000đ",expiry:"31/12/2026",color:"#16a34a",active:true,usedCount:0,limit:200,source:"system"},
+            {id:"p3",code:"TOUR10",type:"percent",value:10,minOrder:3000000,maxDiscount:300000,description:"Giảm 10% cho tour trên 3 triệu",expiry:"30/04/2027",color:"#06b6d4",active:true,usedCount:0,limit:100,source:"system"},
+          ];
+          await AsyncStorage.setItem("@promo_codes", JSON.stringify(defaultCodes)).catch(() => {});
+        }
+      }
+    }).catch(() => {});
+  }, []);
+
   const STEPS=entryMode==='guide'?STEP_LABELS_GUIDE:STEP_LABELS_TOUR;
   const renderProgress=()=>(
     <View style={s.progWrap}>
@@ -396,7 +507,19 @@ export default function GuestBookingFlow(){
           ))}
         </ScrollView>
       )}
-      <TouchableOpacity style={[s.primaryBtn,!selectedTour&&s.primaryBtnOff]} disabled={!selectedTour} onPress={()=>setStep(1)}>
+      <TouchableOpacity
+        style={[s.primaryBtn,!selectedTour&&s.primaryBtnOff]}
+        disabled={!selectedTour}
+        onPress={()=>{
+          // Lọc HDV được phân công cho tour này
+          if(selectedTour?.assignedGuideIds && selectedTour.assignedGuideIds.length > 0){
+            setGuides(prev => prev.filter(g =>
+              (selectedTour.assignedGuideIds as string[]).includes(g.id)
+            ));
+          }
+          setStep(1);
+        }}
+      >
         <Text style={s.primaryBtnTxt}>Tiếp theo: Chọn HDV</Text><Ionicons name="arrow-forward" size={16} color="#fff"/>
       </TouchableOpacity>
     </>
@@ -486,13 +609,88 @@ export default function GuestBookingFlow(){
       <View style={s.summaryCard}>
         <Row label={`Giá tour × ${guests} người`} val={fmt(tourPrice*guests)}/>
         {ADDONS.filter(a=>selectedAddons.includes(a.id)).map(a=><Row key={a.id} label={a.label} val={fmt(a.price)}/>)}
-        <View style={s.divider}/><Row label="Tổng cộng" val={fmt(totalAmount)} bold highlight/>
+        <View style={s.divider}/>
+
+        {/* Voucher box */}
+        {appliedVoucher ? (
+          <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:'#f0fdf4',borderRadius:10,padding:10,marginBottom:6}}>
+            <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
+              <Ionicons name="pricetag" size={15} color="#16a34a"/>
+              <View>
+                <Text style={{color:'#16a34a',fontWeight:'800',fontSize:13}}>{appliedVoucher.code}</Text>
+                <Text style={{color:'#7a8cc2',fontSize:11}}>{appliedVoucher.desc}</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={()=>setAppliedVoucher(null)} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+              <Ionicons name="close-circle" size={18} color="#dc2626"/>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={{marginBottom:6}}>
+            <View style={{flexDirection:'row',gap:8}}>
+              <TextInput
+                style={{flex:1,backgroundColor:'#f3f7ff',borderRadius:10,borderWidth:1,borderColor:'#e4ebff',paddingHorizontal:12,paddingVertical:8,fontSize:13,color:'#1f2a58',fontWeight:'700',letterSpacing:1}}
+                placeholder="Nhập mã voucher..."
+                placeholderTextColor="#b0bdd8"
+                value={voucherInput}
+                onChangeText={v=>{setVoucherInput(v.toUpperCase());setVoucherError('');}}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                blurOnSubmit={false}
+              />
+              <TouchableOpacity
+                style={{backgroundColor:'#4f7cff',borderRadius:10,paddingHorizontal:14,justifyContent:'center'}}
+                onPress={async()=>{
+                  const code=voucherInput.trim();
+                  if(!code) return;
+                  // Thử tìm trong @guest_vouchers trước (đã có sẵn)
+                  const gRaw=await AsyncStorage.getItem('@guest_vouchers').catch(()=>null);
+                  const gList:any[]=gRaw?JSON.parse(gRaw):[];
+                  const gFound=gList.find(v=>v.code===code&&!v.used);
+                  if(gFound){
+                    if(gFound.minOrder&&(totalAmount as number)<gFound.minOrder){
+                      setVoucherError(`Đơn tối thiểu ${fmt(gFound.minOrder)}`);return;
+                    }
+                    setAppliedVoucher({code,type:gFound.type,value:gFound.value,minOrder:gFound.minOrder??0,maxDiscount:gFound.maxDiscount??0,desc:gFound.desc,voucherId:gFound.id});
+                    setVoucherInput('');return;
+                  }
+                  // Tìm trong @promo_codes (Admin tạo)
+                  const pRaw=await AsyncStorage.getItem('@promo_codes').catch(()=>null);
+                  const pList:any[]=pRaw?JSON.parse(pRaw):[];
+                  const found=pList.find(p=>p.code===code&&p.active);
+                  if(!found){setVoucherError('Mã không hợp lệ hoặc hết hạn');return;}
+                  if((found.usedCount||0)>=(found.limit||999)){setVoucherError('Mã đã hết lượt sử dụng');return;}
+                  if(found.minOrder&&(totalAmount as number)<found.minOrder){
+                    setVoucherError(`Đơn tối thiểu ${fmt(found.minOrder)}`);return;
+                  }
+                  setAppliedVoucher({code,type:found.type,value:found.value,minOrder:found.minOrder??0,maxDiscount:found.maxDiscount??0,desc:found.description??'',voucherId:found.id});
+                  setVoucherInput('');
+                }}
+              >
+                <Text style={{color:'#fff',fontWeight:'700',fontSize:13}}>Áp dụng</Text>
+              </TouchableOpacity>
+            </View>
+            {!!voucherError&&<Text style={{color:'#dc2626',fontSize:11,marginTop:4}}>{voucherError}</Text>}
+          </View>
+        )}
+
+        {discountAmount > 0 && <Row label="Giảm giá voucher" val={`-${fmt(discountAmount)}`}/>}
+        <Row label="Tổng cộng" val={fmt(finalAmount)} bold highlight/>
       </View>
       <TouchableOpacity style={s.primaryBtn} onPress={()=>setStep(3)}>
         <Text style={s.primaryBtnTxt}>Tiếp tục thanh toán</Text><Ionicons name="arrow-forward" size={16} color="#fff"/>
       </TouchableOpacity>
     </>
   );
+
+  // Tính discount từ voucher
+  const calcDiscount = (total: number) => {
+    if (!appliedVoucher) return 0;
+    if (total < appliedVoucher.minOrder) return 0;
+    if (appliedVoucher.type === "fixed") return Math.min(appliedVoucher.value, total);
+    const pct = (total * appliedVoucher.value) / 100;
+    return appliedVoucher.maxDiscount ? Math.min(pct, appliedVoucher.maxDiscount) : pct;
+  };
 
   // Step 3 – Thanh toán
   const S3=()=>(
@@ -505,7 +703,14 @@ export default function GuestBookingFlow(){
         <View style={s.divider}/>
         <Row label="Giá tour" val={fmt(tourPrice*guests)}/>
         {ADDONS.filter(a=>selectedAddons.includes(a.id)).map(a=><Row key={a.id} label={a.label} val={fmt(a.price)}/>)}
-        <View style={s.divider}/><Row label="Tổng thanh toán" val={fmt(totalAmount)} bold highlight/>
+        {appliedVoucher && (
+          <View style={{flexDirection:'row',alignItems:'center',gap:6,paddingVertical:4}}>
+            <Ionicons name="pricetag" size={13} color="#16a34a"/>
+            <Text style={{flex:1,color:'#16a34a',fontSize:12,fontWeight:'700'}}>{appliedVoucher.code} – {appliedVoucher.desc}</Text>
+            <Text style={{color:'#16a34a',fontWeight:'800',fontSize:13}}>-{fmt(discountAmount)}</Text>
+          </View>
+        )}
+        <View style={s.divider}/><Row label="Tổng thanh toán" val={fmt(finalAmount)} bold highlight/>
       </View>
       <View style={s.guestCard}>
         <Text style={s.guestLbl}>Số khách</Text>

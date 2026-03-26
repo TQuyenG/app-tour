@@ -18,30 +18,19 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = 260;
 
 const DRAWER_ITEMS = [
-  { icon: "home", label: "Trang chủ", route: "/admin-home" },
-  {
-    icon: "map-outline",
-    label: "Quản lý Tour",
-    route: "/admin-tour-management",
-  },
-  {
-    icon: "people-outline",
-    label: "Quản lý HDV",
-    route: "/admin-guide-management",
-  },
-  {
-    icon: "person-add-outline",
-    label: "Duyệt đăng ký HDV",
-    route: "/admin-guide-requests",
-  },
-  {
-    icon: "ticket-outline",
-    label: "Voucher",
-    route: "/admin-voucher-management",
-  },
-  { icon: "bar-chart-outline", label: "Báo cáo", route: "/admin-report" },
-  { icon: "person-outline", label: "Profile", route: "/admin-profile" },
-  { icon: "settings-outline", label: "Cài đặt", route: "/settings" },
+  { icon: "home",                label: "Trang chủ",        route: "/admin-home" },
+  { icon: "map-outline",         label: "Quản lý Tour",     route: "/admin-tour-management" },
+  { icon: "people-outline",      label: "Quản lý HDV",      route: "/admin-guide-management" },
+  { icon: "person-add-outline",  label: "Duyệt đăng ký HDV",route: "/admin-guide-requests" },
+  { icon: "person-circle-outline",label: "Quản lý Users",   route: "/admin-users" },
+  { icon: "ticket-outline",      label: "Voucher",           route: "/admin-voucher-management" },
+  { icon: "flash-outline",       label: "Flash Sale",        route: "/admin-flash-sale" },
+  { icon: "image-outline",       label: "Banner QC",         route: "/admin-banner" },
+  { icon: "cash-outline",        label: "Commission",        route: "/admin-commission" },
+  { icon: "warning-outline",     label: "Khiếu nại",         route: "/admin-complaints" },
+  { icon: "bar-chart-outline",   label: "Báo cáo",           route: "/admin-report" },
+  { icon: "settings-outline",    label: "Cài đặt hệ thống", route: "/admin-settings" },
+  { icon: "person-outline",      label: "Profile",           route: "/admin-profile" },
 ];
 
 const BOTTOM_TABS = [
@@ -269,41 +258,16 @@ export default function AdminHome() {
         <Text style={styles.sectionTitle}>Thao tác nhanh</Text>
         <View style={styles.quickGrid}>
           {[
-            {
-              icon: "add-circle-outline",
-              label: "Thêm Tour",
-              color: "#4f7cff",
-              bg: "#eef2ff",
-              route: "/admin-tour-management",
-            },
-            {
-              icon: "person-add-outline",
-              label: "Thêm HDV",
-              color: "#22c55e",
-              bg: "#f0fdf4",
-              route: "/admin-guide-management",
-            },
-            {
-              icon: "clipboard-outline",
-              label: "Duyệt HDV",
-              color: "#d97706",
-              bg: "#fffbeb",
-              route: "/admin-guide-requests",
-            },
-            {
-              icon: "ticket-outline",
-              label: "Tạo Voucher",
-              color: "#f59e0b",
-              bg: "#fffbeb",
-              route: "/admin-voucher-management",
-            },
-            {
-              icon: "download-outline",
-              label: "Xuất báo cáo",
-              color: "#a855f7",
-              bg: "#fdf4ff",
-              route: "/admin-report",
-            },
+            { icon: "add-circle-outline",  label: "Thêm Tour",    color: "#4f7cff", bg: "#eef2ff", route: "/admin-tour-management" },
+            { icon: "person-add-outline",  label: "Duyệt HDV",    color: "#22c55e", bg: "#f0fdf4", route: "/admin-guide-requests" },
+            { icon: "flash-outline",       label: "Flash Sale",    color: "#ef4444", bg: "#fff1f2", route: "/admin-flash-sale" },
+            { icon: "ticket-outline",      label: "Tạo Voucher",  color: "#f59e0b", bg: "#fffbeb", route: "/admin-voucher-management" },
+            { icon: "person-circle-outline",label: "Users",        color: "#06b6d4", bg: "#ecfeff", route: "/admin-users" },
+            { icon: "warning-outline",     label: "Khiếu nại",    color: "#dc2626", bg: "#fef2f2", route: "/admin-complaints" },
+            { icon: "image-outline",       label: "Banner",        color: "#8b5cf6", bg: "#f5f3ff", route: "/admin-banner" },
+            { icon: "cash-outline",        label: "Commission",   color: "#16a34a", bg: "#f0fdf4", route: "/admin-commission" },
+            { icon: "settings-outline",    label: "Cài đặt",      color: "#64748b", bg: "#f8fafc", route: "/admin-settings" },
+            { icon: "download-outline",    label: "Báo cáo",      color: "#a855f7", bg: "#fdf4ff", route: "/admin-report" },
           ].map((q, i) => (
             <TouchableOpacity
               key={i}

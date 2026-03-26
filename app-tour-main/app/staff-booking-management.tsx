@@ -573,7 +573,7 @@ export default function StaffBookingManagement() {
       </View>
 
       {/* Filters */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterScroll} contentContainerStyle={s.filterRow}>
         {FILTERS.map(f => {
           const count = bookings.filter(FILTER_MAP[f]).length;
           return (
@@ -718,9 +718,10 @@ const s = StyleSheet.create({
   slaBannerTxt:     { color: "#dc2626", fontWeight: "800", fontSize: 11 },
   slaFullBanner:    { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fff5f5", borderBottomWidth: 1, borderBottomColor: "#fecaca", paddingHorizontal: 18, paddingVertical: 10 },
   slaFullTxt:       { flex: 1, color: "#dc2626", fontSize: 12, fontWeight: "700" },
-  searchBox:        { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, margin: 14, marginBottom: 0 },
+  searchBox:        { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginHorizontal: 14, marginTop: 14, marginBottom: 6 },
   searchInput:      { flex: 1, color: "#1f2a58", fontSize: 14 },
-  filterRow:        { gap: 8, paddingHorizontal: 14, paddingVertical: 12 },
+  filterScroll:     { minHeight: 52, flexShrink: 0 },
+  filterRow:        { gap: 8, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, alignItems: "center" },
   filterChip:       { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, borderWidth: 1, borderColor: "#dfe7ff", backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 7 },
   filterActive:     { backgroundColor: "#2856d6", borderColor: "#2856d6" },
   filterTxt:        { color: "#6c7fb7", fontSize: 12, fontWeight: "600" },
@@ -729,7 +730,7 @@ const s = StyleSheet.create({
   filterCountActive:{ backgroundColor: "rgba(255,255,255,0.25)" },
   filterCountTxt:   { color: "#2856d6", fontSize: 10, fontWeight: "800" },
   content:          { padding: 14, paddingTop: 0 },
-  summaryRow:       { flexDirection: "row", backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, marginBottom: 14, justifyContent: "space-between" },
+  summaryRow:       { flexDirection: "row", backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, marginHorizontal: 14, marginBottom: 14, justifyContent: "space-between" },
   summaryItem:      { alignItems: "center", flex: 1 },
   summaryValue:     { fontSize: 16, fontWeight: "900" },
   summaryLabel:     { color: "#7a8cc2", fontSize: 9, fontWeight: "600", marginTop: 2 },

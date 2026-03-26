@@ -44,38 +44,12 @@ const ADMIN_TABS = [
 
 // ─── Guide tabs ───────────────────────────────────────────────
 const GUIDE_TABS = [
-  {
-    icon: "home-outline",
-    iconActive: "home",
-    label: "Tổng quan",
-    route: "/guide-home",
-  },
-  {
-    icon: "calendar-outline",
-    iconActive: "calendar",
-    label: "Booking",
-    route: "/guide-booking-management",
-  },
-  {
-    icon: "time-outline",
-    iconActive: "time",
-    label: "Lịch",
-    route: "/guide-schedule-management",
-  },
-  {
-    icon: "cash-outline",
-    iconActive: "cash",
-    label: "Thu nhập",
-    route: "/guide-earnings",
-  },
-  {
-    icon: "person-outline",
-    iconActive: "person",
-    label: "Hồ sơ",
-    route: "/guide-profile",
-  },
+  { icon: "home-outline",          iconActive: "home",          label: "Tổng quan", route: "/guide-home" },
+  { icon: "calendar-outline",      iconActive: "calendar",      label: "Booking",   route: "/guide-booking-management" },
+  { icon: "bar-chart-outline",     iconActive: "bar-chart",     label: "Analytics", route: "/guide-analytics" },
+  { icon: "chatbubbles-outline",   iconActive: "chatbubbles",   label: "Chat",      route: "/guide-chat" },
+  { icon: "person-outline",        iconActive: "person",        label: "Hồ sơ",    route: "/guide-profile" },
 ] as const;
-
 interface Props {
   role: "admin" | "guide";
   activeRoute: string;

@@ -162,9 +162,25 @@ export default function AdminVoucherManagement() {
 
   const persist = useCallback(async (data: Voucher[]) => {
     setVouchers(data);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(
-      () => {},
-    );
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
+
+    // ✅ Sync sang @promo_codes để Guest có thể nhập mã
+    const promoCodes = data.map(v => ({
+      id: v.id,
+      code: v.code,
+      type: v.type,
+      value: Number(v.discount),
+      minOrder: Number(v.minOrder) || 0,
+      maxDiscount: Number(v.maxDiscount) || 0,
+      description: v.description,
+      expiry: v.expiry,
+      color: v.color,
+      active: v.status === "active",
+      usedCount: v.used,
+      limit: v.limit,
+      source: "admin",
+    }));
+    await AsyncStorage.setItem("@promo_codes", JSON.stringify(promoCodes)).catch(() => {});
   }, []);
 
   const openAdd = () => {
@@ -226,7 +242,16 @@ export default function AdminVoucherManagement() {
         {
           text: "Xóa",
           style: "destructive",
-          onPress: () => persist(vouchers.filter((x) => x.id !== v.id)),
+          onPress: async () => {
+            const updated = vouchers.filter((x) => x.id !== v.id);
+            await persist(updated);
+            // ✅ Xóa luôn khỏi kho voucher Guest nếu chưa dùng
+            const gRaw = await AsyncStorage.getItem("@guest_vouchers").catch(() => null);
+            if (gRaw) {
+              const gList = JSON.parse(gRaw).filter((gv: any) => gv.code !== v.code);
+              await AsyncStorage.setItem("@guest_vouchers", JSON.stringify(gList)).catch(() => {});
+            }
+          },
         },
       ],
     );
@@ -310,6 +335,7 @@ export default function AdminVoucherManagement() {
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.filterRow}
+        style={{ flexGrow: 0 }}
       >
         {["Tất cả", ...STATUS_OPTIONS].map((st) => {
           const label =
@@ -748,16 +774,18 @@ const s = StyleSheet.create({
     paddingVertical: 10,
   },
   searchInput: { flex: 1, color: "#1f2a58", fontSize: 14 },
-  filterRow: { gap: 8, paddingHorizontal: 14, marginBottom: 8 },
+  filterRow: { gap: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
   filterChip: {
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "#dfe7ff",
     backgroundColor: "#fff",
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  filterActive: { backgroundColor: "#4f7cff", borderColor: "#4f7cff" },
+  filterActive: { backgroundColor: "#4f7cff", borderColor: "#4f7cff", height: 34 },
   filterTxt: { color: "#6c7fb7", fontSize: 12, fontWeight: "600" },
   filterTxtActive: { color: "#fff" },
   resultText: {

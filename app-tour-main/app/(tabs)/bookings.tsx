@@ -11,7 +11,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type BookingStatus = 'pending' | 'paid' | 'checked-in' | 'on-tour' | 'completed' | 'cancelled' | 'accepted' | 'ongoing' | 'done';
+type BookingStatus = 'pending' | 'paid' | 'checked-in' | 'on-tour' | 'completed' | 'cancelled' | 'accepted' | 'ongoing' | 'done'
+  | 'pending_guide' | 'guide_accepted' | 'guide_rejected' | 'checked_in' | 'on_tour';
 
 interface GuestBooking {
   id: string; tourId: string; tourName: string;
@@ -23,15 +24,22 @@ interface GuestBooking {
 const STORAGE_KEY = '@guest_bookings';
 
 const STATUS_META: Record<BookingStatus, { label: string; color: string; step: number }> = {
-  pending:    { label: 'Chờ thanh toán', color: '#d97706', step: 1 },
-  paid:       { label: 'Đã thanh toán',  color: '#4f7cff', step: 2 },
-  'checked-in': { label: 'Đã check-in', color: '#a855f7', step: 3 },
-  'on-tour':  { label: 'Đang đi tour',  color: '#2856d6', step: 4 },
-  accepted:   { label: 'Đã xác nhận',   color: '#4f7cff', step: 2 },
-  ongoing:    { label: 'Đang dẫn',      color: '#a855f7', step: 4 },
-  done:       { label: 'Hoàn thành',    color: '#16a34a', step: 5 },
-  completed:  { label: 'Hoàn tất',      color: '#16a34a', step: 5 },
-  cancelled:  { label: 'Đã hủy',        color: '#dc2626', step: 0 },
+  // status cũ
+  pending:      { label: 'Chờ thanh toán', color: '#d97706', step: 1 },
+  paid:         { label: 'Đã thanh toán',  color: '#4f7cff', step: 2 },
+  'checked-in': { label: 'Đã check-in',   color: '#a855f7', step: 3 },
+  'on-tour':    { label: 'Đang đi tour',  color: '#2856d6', step: 4 },
+  accepted:     { label: 'Đã xác nhận',   color: '#4f7cff', step: 2 },
+  ongoing:      { label: 'Đang dẫn',      color: '#a855f7', step: 4 },
+  done:         { label: 'Hoàn thành',    color: '#16a34a', step: 5 },
+  completed:    { label: 'Hoàn tất',      color: '#16a34a', step: 5 },
+  cancelled:    { label: 'Đã hủy',        color: '#dc2626', step: 0 },
+  // status mới từ guest_booking_flow.tsx
+  pending_guide:   { label: 'Chờ HDV xác nhận', color: '#d97706', step: 1 },
+  guide_accepted:  { label: 'HDV đã nhận',       color: '#4f7cff', step: 2 },
+  guide_rejected:  { label: 'HDV từ chối',        color: '#dc2626', step: 0 },
+  checked_in:      { label: 'Đã check-in',        color: '#a855f7', step: 3 },
+  on_tour:         { label: 'Đang đi tour',       color: '#2856d6', step: 4 },
 };
 
 const fmt = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
@@ -50,16 +58,20 @@ export default function GuestBookingsScreen() {
 
   const visible = useMemo(() => bookings.filter(b => {
     const s = b.status;
-    if (segment === 'upcoming') return s === 'pending' || s === 'paid' || s === 'accepted';
-    if (segment === 'active')   return s === 'checked-in' || s === 'on-tour' || s === 'ongoing';
-    return s === 'completed' || s === 'done' || s === 'cancelled';
+    if (segment === 'upcoming') return ['pending','paid','accepted','pending_guide','guide_accepted'].includes(s);
+    if (segment === 'active')   return ['checked-in','on-tour','ongoing','checked_in','on_tour'].includes(s);
+    return ['completed','done','cancelled','guide_rejected'].includes(s);
   }), [bookings, segment]);
 
   const getAction = (status: BookingStatus) => {
-    if (status === 'pending')    return { label: 'Thanh toán', route: 'guest_booking_flow' };
-    if (status === 'paid' || status === 'accepted') return { label: 'Check-in', route: 'guest_booking_flow' };
-    if (status === 'checked-in' || status === 'on-tour' || status === 'ongoing') return { label: 'Theo dõi', route: 'guest_booking_flow' };
-    if (status === 'completed' || status === 'done') return { label: 'Đánh giá', route: 'guest_post_tour' };
+    if (['pending','pending_guide'].includes(status))
+      return { label: 'Xem đơn', route: 'guest_booking_flow', step: '4' };
+    if (['paid','accepted','guide_accepted'].includes(status))
+      return { label: 'Check-in', route: 'guest_booking_flow', step: '6' };
+    if (['checked-in','on-tour','ongoing','checked_in','on_tour'].includes(status))
+      return { label: 'Theo dõi tour', route: 'guest_booking_flow', step: '7' };
+    if (['completed','done'].includes(status))
+      return { label: 'Đánh giá', route: 'guest_post_tour', step: '0' };
     return null;
   };
 
@@ -71,9 +83,9 @@ export default function GuestBookingsScreen() {
       {/* Segment */}
       <View style={st.segmentRow}>
         {[
-          { key: 'upcoming', label: 'Sắp đi', count: bookings.filter(b => ['pending','paid','accepted'].includes(b.status)).length },
-          { key: 'active',   label: 'Đang đi', count: bookings.filter(b => ['checked-in','on-tour','ongoing'].includes(b.status)).length },
-          { key: 'done',     label: 'Hoàn tất', count: bookings.filter(b => ['completed','done','cancelled'].includes(b.status)).length },
+          { key: 'upcoming', label: 'Sắp đi',  count: bookings.filter(b => ['pending','paid','accepted','pending_guide','guide_accepted'].includes(b.status)).length },
+          { key: 'active',   label: 'Đang đi', count: bookings.filter(b => ['checked-in','on-tour','ongoing','checked_in','on_tour'].includes(b.status)).length },
+          { key: 'done',     label: 'Hoàn tất', count: bookings.filter(b => ['completed','done','cancelled','guide_rejected'].includes(b.status)).length },
         ].map(seg => (
           <TouchableOpacity key={seg.key} style={[st.segment, segment === seg.key && st.segmentActive]} onPress={() => setSegment(seg.key as any)}>
             <Text style={[st.segmentText, segment === seg.key && st.segmentTextActive]}>{seg.label}</Text>
@@ -111,7 +123,13 @@ export default function GuestBookingsScreen() {
               </View>
 
               {action && (
-                <TouchableOpacity style={st.actionBtn} onPress={() => router.push(`/${action.route}` as any)}>
+                <TouchableOpacity
+                  style={st.actionBtn}
+                  onPress={() => router.push({
+                    pathname: `/${action.route}` as any,
+                    params: { bookingId: b.id, resumeStep: action.step },
+                  })}
+                >
                   <Text style={st.actionTxt}>{action.label}</Text>
                 </TouchableOpacity>
               )}

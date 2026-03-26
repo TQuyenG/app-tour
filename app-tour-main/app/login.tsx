@@ -10,8 +10,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import LogoLocalMate from "../components/LogoLocalMate";
 
 const QUICK = [
   {
@@ -83,28 +84,14 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={st.container}
     >
-      {/* Quick login */}
-      <View style={st.quickWrap}>
-        <Text style={st.quickLabel}>Demo:</Text>
-        <View style={st.quickBtns}>
-          {QUICK.map((q) => (
-            <TouchableOpacity
-              key={q.type}
-              onPress={() => quickLogin(q.email, q.pw)}
-              style={[st.quickIcon, { backgroundColor: q.bg }]}
-            >
-              <MaterialCommunityIcons name={q.icon} size={22} color={q.color} />
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
       <ScrollView
         contentContainerStyle={st.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={{ marginTop: -40, zIndex: 2 }}>
+          <LogoLocalMate />
+        </View>
         <View style={st.header}>
-          <Text style={st.brand}>TourGo</Text>
           <Text style={st.title}>Đăng nhập</Text>
           <Text style={st.sub}>Điền thông tin tài khoản của bạn</Text>
         </View>
@@ -193,19 +180,36 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Demo hint */}
-        <View style={st.hintCard}>
-          <Text style={st.hintTitle}>
-            Tài khoản demo (nhấn icon ở trên để đăng nhập nhanh)
-          </Text>
-          <Text style={st.hintRow}>👤 Guest: guest1@gmail.com</Text>
-          <Text style={st.hintRow}>🛡️ Admin: admin1@gmail.com</Text>
-          <Text style={st.hintRow}>🗺️ HDV: guide1@gmail.com</Text>
-          <Text style={st.hintRow}>🎧 Staff: staff1@gmail.com</Text>
-        
-          <Text style={st.hintRow}>
-            🔀 Dual: dual1@gmail.com · Mật khẩu đều: 123456
-          </Text>
+        {/* Quick login dưới cùng */}
+        <View style={{ marginTop: 24, alignItems: "center" }}>
+          <Text style={st.quickLabel}>Demo:</Text>
+          <View style={st.quickBtns}>
+            {QUICK.map((q) => (
+              <TouchableOpacity
+                key={q.type}
+                onPress={() => quickLogin(q.email, q.pw)}
+                style={[st.quickIcon, { backgroundColor: q.bg }]}
+              >
+                <MaterialCommunityIcons
+                  name={q.icon}
+                  size={22}
+                  color={q.color}
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={st.hintCard}>
+            <Text style={st.hintTitle}>
+              Tài khoản demo (nhấn icon để đăng nhập nhanh)
+            </Text>
+            <Text style={st.hintRow}>Guest: guest1@gmail.com</Text>
+            <Text style={st.hintRow}>Admin: admin1@gmail.com</Text>
+            <Text style={st.hintRow}>HDV: guide1@gmail.com</Text>
+            <Text style={st.hintRow}>Staff: staff1@gmail.com</Text>
+            <Text style={st.hintRow}>
+              Dual: dual1@gmail.com - Mật khẩu đều: 123456
+            </Text>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -216,10 +220,10 @@ const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: "center",
-    padding: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
+    justifyContent: "flex-start",
+    padding: 16,
+    paddingTop: 8,
+    paddingBottom: 18,
   },
   quickWrap: {
     position: "absolute",
@@ -249,14 +253,21 @@ const st = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
-  header: { marginBottom: 32 },
+  header: { marginBottom: 12, marginTop: 0 },
   brand: {
     color: "#4f7cff",
     fontWeight: "800",
     fontSize: 22,
+    marginTop: 50,
     marginBottom: 10,
   },
-  title: { fontSize: 30, fontWeight: "800", color: "#111827", marginBottom: 6 },
+  title: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#111827",
+    marginTop: -50,
+    marginBottom: 6,
+  },
   sub: { fontSize: 15, color: "#6B7280" },
   formCard: { marginBottom: 14 },
   labelRow: {
