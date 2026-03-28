@@ -42,10 +42,11 @@ const TAG_COLOR: Record<string, { bg: string; color: string }> = {
 export default function StaffHome() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [refunds,  setRefunds]  = useState<any[]>([]);
-  const [reviews,  setReviews]  = useState<any[]>([]);
-  const [chats,    setChats]    = useState<any[]>([]);
+  const [bookings,    setBookings]    = useState<any[]>([]);
+  const [refunds,     setRefunds]     = useState<any[]>([]);
+  const [reviews,     setReviews]     = useState<any[]>([]);
+  const [chats,       setChats]       = useState<any[]>([]);
+  const [complaints,  setComplaints]  = useState<any[]>([]);
 
   useFocusEffect(useCallback(() => {
     Promise.all([
@@ -53,30 +54,33 @@ export default function StaffHome() {
       AsyncStorage.getItem("@staff_refunds").catch(() => null),
       AsyncStorage.getItem("@guide_reviews").catch(() => null),
       AsyncStorage.getItem("@staff_chats").catch(() => null),
-    ]).then(([bRaw, rRaw, revRaw, cRaw]) => {
+      AsyncStorage.getItem("@complaints").catch(() => null),
+    ]).then(([bRaw, rRaw, revRaw, cRaw, cpRaw]) => {
       setBookings(bRaw ? JSON.parse(bRaw) : []);
       setRefunds(rRaw ? JSON.parse(rRaw) : []);
       setReviews(revRaw ? JSON.parse(revRaw) : []);
       setChats(cRaw ? JSON.parse(cRaw) : []);
+      setComplaints(cpRaw ? JSON.parse(cpRaw) : []);
     });
   }, []));
 
-  const pendingBookings = bookings.filter(b => b.status === "pending" || b.status === "pending_guide").length;
-  const pendingRefunds  = refunds.filter(r => r.status === "pending").length;
-  const flaggedReviews  = reviews.filter(r => r.flagged).length;
-  const openChats       = chats.filter(c => !c.resolved).length;
-  const recentBookings  = bookings.slice(0, 5);
+  const pendingBookings   = bookings.filter(b => b.status === "pending" || b.status === "pending_guide").length;
+  const pendingRefunds    = refunds.filter(r => r.status === "pending").length;
+  const flaggedReviews    = reviews.filter(r => r.flagged).length;
+  const openChats         = chats.filter(c => !c.resolved).length;
+  const pendingComplaints = complaints.filter(c => c.status === "pending").length;
+  const recentBookings    = bookings.slice(0, 5);
 
   const STATS: StatCard[] = [
-    { label: "Booking chờ xử lý", value: pendingBookings || 6, icon: "receipt-outline",    color: "#2856d6", bg: "#eaf0ff", borderColor: "#bfcfff", route: "/staff-booking-management", trend: "+2 hôm nay" },
-    { label: "Hoàn tiền chờ",     value: pendingRefunds  || 4, icon: "refresh-outline",    color: "#d97706", bg: "#fef9c3", borderColor: "#fde68a", route: "/staff-refund-management",   trend: "3.2M tổng" },
-    { label: "Review vi phạm",    value: flaggedReviews  || 5, icon: "flag-outline",        color: "#dc2626", bg: "#fee2e2", borderColor: "#fecaca", route: "/staff-review-moderation",  trend: "Cần xem ngay" },
-    { label: "Chat đang mở",      value: openChats       || 3, icon: "chatbubbles-outline", color: "#16a34a", bg: "#dcfce7", borderColor: "#86efac", route: "/staff-livechat",            trend: "2 chưa đọc" },
+    { label: "Booking chờ xử lý", value: pendingBookings   || 6, icon: "receipt-outline",    color: "#2856d6", bg: "#eaf0ff", borderColor: "#bfcfff", route: "/staff-booking-management", trend: "+2 hôm nay" },
+    { label: "Hoàn tiền chờ",     value: pendingRefunds    || 4, icon: "refresh-outline",    color: "#d97706", bg: "#fef9c3", borderColor: "#fde68a", route: "/staff-refund-management",   trend: "3.2M tổng" },
+    { label: "Khiếu nại chờ",     value: pendingComplaints || 3, icon: "warning-outline",    color: "#dc2626", bg: "#fee2e2", borderColor: "#fecaca", route: "/staff-complaints",          trend: "Xử lý ngay" },
+    { label: "Chat đang mở",      value: openChats         || 3, icon: "chatbubbles-outline", color: "#16a34a", bg: "#dcfce7", borderColor: "#86efac", route: "/staff-livechat",            trend: "2 chưa đọc" },
   ];
 
   const QUICK_ACTIONS = [
+    { icon: "warning-outline",      label: "Khiếu nại",      sublabel: "Xử lý tranh chấp", color: "#dc2626", route: "/staff-complaints" },
     { icon: "ticket-outline",       label: "Gửi Voucher",    sublabel: "Bồi thường khách", color: "#f59e0b", route: "/staff-voucher-send" },
-    { icon: "flag-outline",         label: "Kiểm duyệt",     sublabel: "Review vi phạm",   color: "#dc2626", route: "/staff-review-moderation" },
     { icon: "chatbubbles-outline",  label: "Live Chat",      sublabel: "Hỗ trợ trực tuyến",color: "#16a34a", route: "/staff-livechat" },
     { icon: "refresh-outline",      label: "Hoàn tiền",      sublabel: "Duyệt yêu cầu",    color: "#2856d6", route: "/staff-refund-management" },
   ];

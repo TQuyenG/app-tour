@@ -10,7 +10,22 @@ import { useCallback, useState } from "react";
 import {
   Alert, Modal, ScrollView, StatusBar, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
+  Image, // Thêm Image để hiển thị ảnh tour
 } from "react-native";
+
+// Thêm hàm lấy ảnh tour tự động (Giống bên User để đồng bộ giao diện)
+function getBookingImg(tourId: string, tourName: string): string {
+  const TOUR_IMG_MAP: Record<string, string> = {
+    't1': 'https://images.unsplash.com/photo-1596178060671-7a80dc8059ea?w=500&q=80',
+    't2': 'https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=500&q=80',
+    't3': 'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=500&q=80',
+  };
+  if (TOUR_IMG_MAP[tourId]) return TOUR_IMG_MAP[tourId];
+  const n = (tourName || '').toLowerCase();
+  if (n.includes('đà lạt')) return TOUR_IMG_MAP['t1'];
+  if (n.includes('phú quốc')) return TOUR_IMG_MAP['t2'];
+  return 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=500&q=80';
+}
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StaffTabBar } from "@/components/StaffTabBar";
 
@@ -619,22 +634,28 @@ export default function StaffBookingManagement() {
           return (
             <TouchableOpacity key={b.id} style={[s.card, isSLA && s.cardSLA, isDisputed && s.cardDisputed]}
               onPress={() => openDetail(b)} activeOpacity={0.85}>
+              
+              {/* PHẦN MỚI: Ảnh Tour Banner */}
+              <View style={s.cardImgWrap}>
+                <Image 
+                  source={{ uri: getBookingImg(b.tourCode || '', b.tourName) }} 
+                  style={s.cardImg} 
+                  resizeMode="cover" 
+                />
+                <View style={s.cardImgOverlay} />
+                <View style={[s.statusBadgeFloat, { backgroundColor: meta.bg }]}>
+                  <View style={[s.statusDot, { backgroundColor: meta.color }]} />
+                  <Text style={[s.statusTxt, { color: meta.color }]}>{meta.label}</Text>
+                </View>
+              </View>
+
               {isSLA && (
                 <View style={s.slaStrip}>
                   <Ionicons name="time-outline" size={11} color="#dc2626" />
                   <Text style={s.slaStripTxt}>SLA vượt {b.slaMinutes} phút — cần xử lý ngay</Text>
                 </View>
               )}
-              <View style={s.cardHeader}>
-                <View style={s.cardIdRow}>
-                  <Text style={s.cardId}>#{b.id}</Text>
-                  {b.tourCode && <Text style={s.tourCode}>{b.tourCode}</Text>}
-                </View>
-                <View style={[s.statusBadge, { backgroundColor: meta.bg }]}>
-                  <View style={[s.statusDot, { backgroundColor: meta.color }]} />
-                  <Text style={[s.statusTxt, { color: meta.color }]}>{meta.label}</Text>
-                </View>
-              </View>
+              
               <Text style={s.tourName} numberOfLines={1}>{b.tourName}</Text>
               <View style={s.infoGrid}>
                 {[
@@ -737,6 +758,11 @@ const s = StyleSheet.create({
   emptyCard:        { backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: "#e4ebff", padding: 32, alignItems: "center", gap: 10 },
   emptyTxt:         { color: "#7a8cc2" },
   card:             { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, marginBottom: 10, overflow: "hidden" },
+  cardImgWrap:      { height: 120, position: 'relative' },
+  cardImg:          { width: '100%', height: '100%' },
+  cardImgOverlay:   { position: 'absolute', bottom: 0, left: 0, right: 0, height: 50, backgroundColor: 'rgba(0,0,0,0.2)' },
+  statusBadgeFloat: { position: 'absolute', top: 10, right: 12, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  cardBodyContent:  { padding: 14 }, // Bao bọc phần text bên dưới ảnh
   cardSLA:          { borderLeftWidth: 3, borderLeftColor: "#dc2626" },
   cardDisputed:     { borderLeftWidth: 3, borderLeftColor: "#7c3aed" },
   slaStrip:         { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#fff5f5", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5, marginBottom: 8 },

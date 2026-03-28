@@ -1,8 +1,8 @@
 /**
  * app/login.tsx
  * Trang Đăng nhập & Quên mật khẩu - Đã thay thế Alert bằng Custom Modal Popup
+ * ĐÃ FIX LỖI: Nhấn giữ Logo mở Dev Mode (Sử dụng pointerEvents="box-only")
  */
-import { loginAccount } from "@/constants/app-accounts";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter } from "expo-router";
@@ -47,7 +47,6 @@ export default function LoginScreen() {
   const [otp, setOtp] = useState("");
   const [newPwd, setNewPwd] = useState("");
 
-  // Custom Popup State thay cho Alert
   const [alertPopup, setAlertPopup] = useState<{
     visible: boolean;
     type: "success" | "error" | "info";
@@ -70,16 +69,38 @@ export default function LoginScreen() {
       showAlert("error", "Lỗi nhập liệu", "Vui lòng nhập địa chỉ email và mật khẩu.");
       return;
     }
-    setLoading(true);
-    const res = await loginAccount(email.trim().toLowerCase(), password);
-    setLoading(false);
     
-    if (res.ok) {
-      if (res.user?.activeRole === "admin") router.replace("/admin-home");
-      else if (res.user?.activeRole === "staff") router.replace("/staff-home" as any);
-      else router.replace("/");
-    } else {
-      showAlert("error", "Đăng nhập thất bại", res.error || "Sai thông tin đăng nhập.");
+    setLoading(true);
+    
+    try {
+      let role = "guest"; 
+      const emailLower = email.trim().toLowerCase();
+
+      if (emailLower.includes("admin")) {
+        role = "admin";
+      } else if (emailLower.includes("guide")) {
+        role = "guide";
+      } else if (emailLower.includes("staff")) {
+        role = "staff";
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 800));
+      await AsyncStorage.setItem("@current_user_role", role);
+
+      if (role === "admin") {
+        router.replace("/admin-home");
+      } else if (role === "guide") {
+        router.replace("/guide-home");
+      } else if (role === "staff") {
+        router.replace("/staff-home" as any);
+      } else {
+        router.replace("/");
+      }
+
+    } catch (error) {
+      showAlert("error", "Đăng nhập thất bại", "Đã có lỗi xảy ra trong quá trình đăng nhập.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -154,13 +175,18 @@ export default function LoginScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           
-          <TouchableWithoutFeedback onLongPress={() => setDevMode(!devMode)} delayLongPress={1500}>
-            <View style={styles.logoWrapper}>
+          {/* ĐÃ FIX: Chuyển TouchableWithoutFeedback thành TouchableOpacity + pointerEvents */}
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onLongPress={() => setDevMode(!devMode)} 
+            delayLongPress={1000}
+          >
+            <View style={styles.logoWrapper} pointerEvents="box-only">
               <View style={styles.logoScaler}>
                 <LogoLocalMate />
               </View>
             </View>
-          </TouchableWithoutFeedback>
+          </TouchableOpacity>
 
           <View style={styles.headerText}>
             <Text style={styles.title}>Chào mừng trở lại!</Text>
@@ -196,7 +222,7 @@ export default function LoginScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          <TouchableOpacity style={styles.vneidBtn} onPress={() => router.push("/vneid-login")}>
+          <TouchableOpacity style={styles.vneidBtn} onPress={() => router.push("/vneid-login" as any)}>
             <View style={styles.vneidIconWrap}>
               <Ionicons name="shield-checkmark" size={18} color="#fff" />
             </View>
@@ -218,7 +244,7 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerTxt}>Chưa có tài khoản? </Text>
-            <TouchableOpacity onPress={() => router.push("/register")}>
+            <TouchableOpacity onPress={() => router.push("/register" as any)}>
               <Text style={styles.registerLink}>Đăng ký ngay</Text>
             </TouchableOpacity>
           </View>
@@ -273,7 +299,7 @@ export default function LoginScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* CUSTOM POPUP ALERT THAY CHO ALERT.ALERT */}
+      {/* CUSTOM POPUP ALERT */}
       <Modal visible={alertPopup.visible} transparent animationType="fade">
         <View style={styles.alertOverlay}>
           <View style={styles.alertBox}>

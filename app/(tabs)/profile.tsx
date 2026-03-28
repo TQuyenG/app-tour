@@ -11,15 +11,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
-  Alert, KeyboardAvoidingView, Modal, Platform,
+  Alert, FlatList, KeyboardAvoidingView, Modal, Platform,
   ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getCurrentUser, logoutAccount, switchRole } from '@/constants/app-accounts';
+import {
+  getSharedChatSessions, guestSendMessage, guestMarkChatRead,
+  guestCreateChatSession, type SharedChatSession,
+} from '@/constants/data-store';
 
 // ─── Types (tự định nghĩa, không import từ shared-data) ──────
 interface GuestProfile {
@@ -45,6 +49,22 @@ const DEFAULT_PROFILE: GuestProfile = {
   voucher: 'SUMMER2026',
   avatarColor: '#4f7cff',
 };
+// ── THÊM MỚI DỮ LIỆU MẪU Ở ĐÂY (NGOÀI COMPONENT) ──
+const GUIDE_CHAT_SEED = [
+  { id: 'gc1', guideName: 'Phạm Văn Hùng', tourName: 'Tour Núi Bà Đen', lastMsg: 'Chúng tôi xuất phát lúc 6h sáng nhé!', time: '08:30', unread: 1, color: '#10b981',
+    messages: [
+      { from: 'guide', text: 'Xin chào! Tôi là HDV cho tour của bạn.', time: '08:00' },
+      { from: 'guest', text: 'Chào anh, điểm đón ở đâu ạ?', time: '08:20' },
+      { from: 'guide', text: 'Chúng tôi xuất phát lúc 6h sáng nhé! Điểm đón: Cổng Bến xe Miền Đông.', time: '08:30' },
+    ],
+  },
+  { id: 'gc2', guideName: 'Nguyễn Thị Mai', tourName: 'Đà Lạt Mộng Mơ 3N2D', lastMsg: 'Tour bao gồm ăn sáng và ăn trưa ạ.', time: 'Hôm qua', unread: 0, color: '#f59e0b',
+    messages: [
+      { from: 'guest', text: 'Tour có bao gồm ăn tối không ạ?', time: '14:00' },
+      { from: 'guide', text: 'Tour bao gồm ăn sáng và ăn trưa ạ. Ăn tối tự túc nhé bạn.', time: '14:05' },
+    ],
+  },
+];
 
 // ─── AsyncStorage helpers ─────────────────────────────────────
 async function loadProfile(): Promise<GuestProfile> {
@@ -74,6 +94,45 @@ export default function ProfileScreen() {
   const [currentUser,  setCurrentUser]  = useState<any>(null);
   const [loaded,       setLoaded]       = useState(false);
 
+  // Chat tab state
+  const [activeTab,       setActiveTab]       = useState<'profile' | 'chat_staff' | 'chat_guide'>('profile');
+  const [chatSessions,    setChatSessions]    = useState<SharedChatSession[]>([]);
+  const [activeChatId,    setActiveChatId]    = useState<string | null>(null);
+  const [chatInput,       setChatInput]       = useState('');
+  const flatRef = useRef<FlatList>(null);
+
+  // ── THÊM MỚI STATE VÀ HÀM CỦA HDV VÀO ĐÂY ──
+  const [guideChatSessions, setGuideChatSessions] = useState(GUIDE_CHAT_SEED);
+  const [activeGuideChat, setActiveGuideChat]     = useState<string | null>(null);
+  const [guideChatInput, setGuideChatInput]       = useState('');
+  const [guideMsgs, setGuideMsgs]                 = useState<any[]>([]);
+
+  const openGuideChat = (session: any) => {
+    setActiveGuideChat(session.id);
+    setGuideMsgs(session.messages || []);
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
+  };
+
+  const sendGuideMsg = () => {
+    if (!guideChatInput.trim() || !activeGuideChat) return;
+    
+    const newMsg = { 
+      from: 'guest', text: guideChatInput.trim(), 
+      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) 
+    };
+
+    setGuideMsgs((prev: any[]) => [...prev, newMsg]);
+
+    setGuideChatSessions((prev: any[]) => prev.map((s: any) => 
+      s.id === activeGuideChat 
+        ? { ...s, lastMsg: guideChatInput.trim(), time: 'Vừa xong', messages: [...(s.messages || []), newMsg] } 
+        : s
+    ));
+
+    setGuideChatInput('');
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
   // Reload mỗi khi tab được focus
   useFocusEffect(
     useCallback(() => {
@@ -83,6 +142,7 @@ export default function ProfileScreen() {
         setLoaded(true);
       });
       getCurrentUser().then(u => setCurrentUser(u));
+      getSharedChatSessions().then(sessions => setChatSessions(sessions));
     }, [])
   );
 
@@ -124,7 +184,123 @@ export default function ProfileScreen() {
   };
   const tierColor = tierColors[profile.loyaltyTier] ?? '#4f7cff';
 
-  if (!loaded) return <View style={st.screen} />;
+  // ── Chat handlers ──────────────────────────────────────────
+  const openChat = async (session: SharedChatSession) => {
+    setActiveChatId(session.id);
+    await guestMarkChatRead(session.id);
+    setChatSessions(prev => prev.map(s => s.id === session.id ? { ...s, unread: 0 } : s));
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
+  };
+
+  const sendChatMsg = async () => {
+    if (!chatInput.trim() || !activeChatId) return;
+    const text = chatInput.trim();
+    setChatInput('');
+    await guestSendMessage(activeChatId, text);
+    const updated = await getSharedChatSessions();
+    setChatSessions(updated);
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
+  
+
+  // ── Active chat session object ────────────────────────────
+  const activeStaffSession = chatSessions.find(s => s.id === activeChatId);
+  const activeGuideSession = guideChatSessions.find(s => s.id === activeGuideChat);
+  const staffUnreadTotal   = chatSessions.reduce((n, s) => n + s.unread, 0);
+  const guideUnreadTotal   = guideChatSessions.reduce((n, s) => n + s.unread, 0);
+
+  // ── Render chat detail (Staff) ────────────────────────────
+  if (activeTab === 'chat_staff' && activeChatId && activeStaffSession) {
+    return (
+      <KeyboardAvoidingView style={st.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[st.chatTopBar, { paddingTop: insets.top + 10 }]}>
+          <TouchableOpacity onPress={() => setActiveChatId(null)} style={st.iconBtn}>
+            <Ionicons name="arrow-back" size={22} color="#1f2a58" />
+          </TouchableOpacity>
+          <View style={[st.chatAvatar, { backgroundColor: '#f59e0b' }]}>
+            <Ionicons name="headset" size={16} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.chatName}>CSKH - LocalMate</Text>
+            <Text style={st.chatSub}>{activeStaffSession.topic}</Text>
+          </View>
+        </View>
+        <FlatList
+          ref={flatRef}
+          data={activeStaffSession.messages}
+          keyExtractor={(_, i) => String(i)}
+          contentContainerStyle={st.msgListContent}
+          renderItem={({ item }) => {
+            const isStaff = item.from === 'staff';
+            return (
+              <View style={[st.msgRow, isStaff ? st.msgRowOther : st.msgRowSelf]}>
+                {isStaff && <View style={[st.miniAvatar, { backgroundColor: '#f59e0b' }]}><Ionicons name="headset" size={12} color="#fff" /></View>}
+                <View style={isStaff ? st.bubbleColLeft : st.bubbleColRight}>
+                  <View style={[st.bubble, isStaff ? st.bubbleLeft : st.bubbleRight]}>
+                    <Text style={[st.bubbleTxt, isStaff ? st.bubbleTxtLeft : st.bubbleTxtRight]}>{item.text}</Text>
+                  </View>
+                  <Text style={[st.timeStamp, isStaff ? { alignSelf: 'flex-start' } : { alignSelf: 'flex-end' }]}>{item.time}</Text>
+                </View>
+              </View>
+            );
+          }}
+        />
+        <View style={[st.inputBar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 10 }]}>
+          <TextInput style={st.chatInput} value={chatInput} onChangeText={setChatInput} placeholder="Nhắn tin cho CSKH..." placeholderTextColor="#b0bdd8" multiline />
+          <TouchableOpacity style={[st.sendBtn, !chatInput.trim() && st.sendBtnOff]} onPress={sendChatMsg} disabled={!chatInput.trim()}>
+            <Ionicons name="send" size={16} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // ── Render chat detail (Guide) ────────────────────────────
+  if (activeTab === 'chat_guide' && activeGuideChat && activeGuideSession) {
+    return (
+      <KeyboardAvoidingView style={st.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[st.chatTopBar, { paddingTop: insets.top + 10 }]}>
+          <TouchableOpacity onPress={() => setActiveGuideChat(null)} style={st.iconBtn}>
+            <Ionicons name="arrow-back" size={22} color="#1f2a58" />
+          </TouchableOpacity>
+          <View style={[st.chatAvatar, { backgroundColor: activeGuideSession.color }]}>
+            <Text style={st.chatAvatarTxt}>{activeGuideSession.guideName.charAt(0)}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.chatName}>{activeGuideSession.guideName}</Text>
+            <Text style={st.chatSub}>{activeGuideSession.tourName}</Text>
+          </View>
+        </View>
+        <FlatList
+          ref={flatRef}
+          data={guideMsgs}
+          keyExtractor={(_, i) => String(i)}
+          contentContainerStyle={st.msgListContent}
+          renderItem={({ item }) => {
+            const isGuide = item.from === 'guide';
+            return (
+              <View style={[st.msgRow, isGuide ? st.msgRowOther : st.msgRowSelf]}>
+                {isGuide && <View style={[st.miniAvatar, { backgroundColor: activeGuideSession.color }]}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{activeGuideSession.guideName.charAt(0)}</Text></View>}
+                <View style={isGuide ? st.bubbleColLeft : st.bubbleColRight}>
+                  <View style={[st.bubble, isGuide ? st.bubbleLeft : st.bubbleRight]}>
+                    <Text style={[st.bubbleTxt, isGuide ? st.bubbleTxtLeft : st.bubbleTxtRight]}>{item.text}</Text>
+                  </View>
+                  <Text style={[st.timeStamp, isGuide ? { alignSelf: 'flex-start' } : { alignSelf: 'flex-end' }]}>{item.time}</Text>
+                </View>
+              </View>
+            );
+          }}
+        />
+        <View style={[st.inputBar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 10 }]}>
+          <TextInput style={st.chatInput} value={guideChatInput} onChangeText={setGuideChatInput} placeholder="Nhắn tin cho HDV..." placeholderTextColor="#b0bdd8" multiline />
+          <TouchableOpacity style={[st.sendBtn, !guideChatInput.trim() && st.sendBtnOff]} onPress={sendGuideMsg} disabled={!guideChatInput.trim()}>
+            <Ionicons name="send" size={16} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
 
   return (
     <ScrollView
@@ -132,6 +308,78 @@ export default function ProfileScreen() {
       contentContainerStyle={[st.content, { paddingTop: insets.top + 14, paddingBottom: 100 }]}>
 
       <Text style={st.title}>Tài khoản</Text>
+
+      {/* ── Tab switcher ── */}
+      <View style={st.tabRow}>
+        {([
+          { key: 'profile',    label: 'Hồ sơ',    icon: 'person-outline' },
+          { key: 'chat_staff', label: 'CSKH',      icon: 'headset-outline', badge: staffUnreadTotal },
+          { key: 'chat_guide', label: 'HDV',        icon: 'map-outline',     badge: guideUnreadTotal },
+        ] as const).map(tab => (
+          <TouchableOpacity
+            key={tab.key}
+            style={[st.tabBtn, activeTab === tab.key && st.tabBtnActive]}
+            onPress={() => setActiveTab(tab.key)}>
+            <Ionicons name={tab.icon as any} size={15} color={activeTab === tab.key ? '#4f7cff' : '#7a8cc2'} />
+            <Text style={[st.tabBtnTxt, activeTab === tab.key && st.tabBtnTxtActive]}>{tab.label}</Text>
+            {'badge' in tab && (tab.badge ?? 0) > 0 && (
+              <View style={st.tabBadge}><Text style={st.tabBadgeTxt}>{(tab as any).badge}</Text></View>
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* ── TAB: Chat CSKH ── */}
+      {activeTab === 'chat_staff' && (
+        <View>
+          {chatSessions.length === 0 && (
+            <View style={st.emptyChat}>
+              <Ionicons name="chatbubbles-outline" size={40} color="#c0cbe8" />
+              <Text style={st.emptyChatTxt}>Chưa có cuộc trò chuyện nào</Text>
+            </View>
+          )}
+          {chatSessions.map(session => (
+            <TouchableOpacity key={session.id} style={[st.chatCard, session.unread > 0 && st.chatCardUnread]} onPress={() => openChat(session)} activeOpacity={0.85}>
+              <View style={[st.chatCardAvatar, { backgroundColor: '#f59e0b' }]}>
+                <Ionicons name="headset" size={20} color="#fff" />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={st.chatCardName} numberOfLines={1}>CSKH - {session.topic}</Text>
+                  <Text style={st.chatCardTime}>{session.lastTime}</Text>
+                </View>
+                <Text style={[st.chatCardLast, session.unread > 0 && { color: '#1f2a58', fontWeight: '700' }]} numberOfLines={1}>{session.lastMessage}</Text>
+              </View>
+              {session.unread > 0 && <View style={st.chatUnreadDot}><Text style={st.chatUnreadTxt}>{session.unread}</Text></View>}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* ── TAB: Chat HDV ── */}
+      {activeTab === 'chat_guide' && (
+        <View>
+          {guideChatSessions.map(session => (
+            <TouchableOpacity key={session.id} style={[st.chatCard, session.unread > 0 && st.chatCardUnread]} onPress={() => openGuideChat(session)} activeOpacity={0.85}>
+              <View style={[st.chatCardAvatar, { backgroundColor: session.color }]}>
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18 }}>{session.guideName.charAt(0)}</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={st.chatCardName} numberOfLines={1}>{session.guideName}</Text>
+                  <Text style={st.chatCardTime}>{session.time}</Text>
+                </View>
+                <Text style={st.chatCardSub} numberOfLines={1}>{session.tourName}</Text>
+                <Text style={[st.chatCardLast, session.unread > 0 && { color: '#1f2a58', fontWeight: '700' }]} numberOfLines={1}>{session.lastMsg}</Text>
+              </View>
+              {session.unread > 0 && <View style={st.chatUnreadDot}><Text style={st.chatUnreadTxt}>{session.unread}</Text></View>}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* ── TAB: Profile ── */}
+      {activeTab === 'profile' && <>
 
       {/* ── Profile card ── */}
       <View style={st.profileCard}>
@@ -195,13 +443,15 @@ export default function ProfileScreen() {
 
       {/* ── Menu items ── */}
       {([
-        { href: '/guest_notifications', icon: 'notifications-outline', label: 'Thông báo',             color: '#4f7cff' },
-        { href: '/guest_favorites',     icon: 'heart-outline',         label: 'Tour yêu thích',        color: '#ec4899' },
-        { href: '/bookings',            icon: 'receipt-outline',       label: 'Lịch sử đặt tour',     color: '#2856d6' },
-        { href: '/guest_loyalty',       icon: 'star-outline',          label: 'Điểm thưởng & Hạng',   color: '#f59e0b' },
-        { href: '/guest_vouchers',      icon: 'ticket-outline',        label: 'Kho Voucher của tôi',   color: '#16a34a' },
-        { href: '/guest_refund',        icon: 'refresh-outline',       label: 'Yêu cầu Hoàn tiền',    color: '#8b5cf6' },
-        { href: '/guest_booking_flow',  icon: 'map-outline',           label: 'Đặt tour mới',          color: '#06b6d4' },
+        { href: '/guest_chat_center',   icon: 'chatbubbles-outline',   label: 'Live Chat (Hỗ trợ)',      color: '#f59e0b' }, // <-- THÊM DÒNG NÀY
+        { href: '/guest_notifications', icon: 'notifications-outline', label: 'Thông báo',               color: '#4f7cff' },
+        { href: '/guest_favorites',     icon: 'heart-outline',         label: 'Tour yêu thích',          color: '#ec4899' },
+        { href: '/bookings',            icon: 'receipt-outline',       label: 'Lịch sử đặt tour',       color: '#2856d6' },
+        { href: '/guest_loyalty',       icon: 'star-outline',          label: 'Điểm thưởng & Hạng',     color: '#f59e0b' },
+        { href: '/guest_vouchers',      icon: 'ticket-outline',        label: 'Kho Voucher của tôi',     color: '#16a34a' },
+        { href: '/guest_refund',        icon: 'refresh-outline',       label: 'Yêu cầu Hoàn tiền',      color: '#8b5cf6' },
+        { href: '/guest_complaints',    icon: 'warning-outline',       label: 'Khiếu nại & Tranh chấp', color: '#dc2626' },
+        { href: '/guest_booking_flow',  icon: 'map-outline',           label: 'Đặt tour mới',            color: '#06b6d4' },
       ] as const).map(item => (
         <TouchableOpacity
           key={item.href}
@@ -250,6 +500,8 @@ export default function ProfileScreen() {
         <Ionicons name="log-out-outline" size={18} color="#ef4444" />
         <Text style={st.logoutTxt}>Đăng xuất</Text>
       </TouchableOpacity>
+
+      </> /* end activeTab === 'profile' */}
 
       {/* ── Edit Modal ── */}
       <Modal
@@ -439,4 +691,52 @@ const st = StyleSheet.create({
   colorDotActive:{ borderWidth: 3, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, elevation: 4 },
   saveBtn:       { marginTop: 20, backgroundColor: '#4f7cff', borderRadius: 14, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   saveBtnTxt:    { color: '#fff', fontSize: 15, fontWeight: '800' },
+
+  // ── Tab switcher ─────────────────────────────────────────
+  tabRow:         { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e4ebff', padding: 4, marginBottom: 14, gap: 4 },
+  tabBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 10 },
+  tabBtnActive:   { backgroundColor: '#edf2ff' },
+  tabBtnTxt:      { color: '#7a8cc2', fontSize: 12, fontWeight: '600' },
+  tabBtnTxtActive:{ color: '#4f7cff', fontWeight: '700' },
+  tabBadge:       { minWidth: 16, height: 16, borderRadius: 8, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  tabBadgeTxt:    { color: '#fff', fontSize: 9, fontWeight: '800' },
+
+  // ── Chat list cards ──────────────────────────────────────
+  chatCard:        { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e4ebff', padding: 12, marginBottom: 8 },
+  chatCardUnread:  { borderColor: '#dbeafe', backgroundColor: '#f0f7ff' },
+  chatCardAvatar:  { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  chatCardName:    { fontSize: 13, fontWeight: '700', color: '#1f2a58', flex: 1 },
+  chatCardTime:    { fontSize: 11, color: '#94a3b8', marginLeft: 'auto' as const, paddingLeft: 4 },
+  chatCardSub:     { fontSize: 11, color: '#4f7cff', fontWeight: '600', marginBottom: 2 },
+  chatCardLast:    { fontSize: 12, color: '#94a3b8' },
+  chatUnreadDot:   { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  chatUnreadTxt:   { color: '#fff', fontSize: 10, fontWeight: '800' },
+  emptyChat:       { alignItems: 'center', paddingTop: 60, gap: 10 },
+  emptyChatTxt:    { color: '#7a8cc2', fontSize: 13 },
+
+  // ── Chat detail screen ───────────────────────────────────
+  chatTopBar:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e4ebff', gap: 8 },
+  iconBtn:        { width: 34, height: 34, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+  chatAvatar:     { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  chatAvatarTxt:  { color: '#fff', fontWeight: '800', fontSize: 14 },
+  chatName:       { color: '#1f2a58', fontWeight: '800', fontSize: 14 },
+  chatSub:        { color: '#7a8cc2', fontSize: 11 },
+  msgListContent: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 8 },
+  msgRow:         { flexDirection: 'row', gap: 7 },
+  msgRowSelf:     { alignSelf: 'flex-end' as const,   maxWidth: '88%', flexDirection: 'row-reverse' },
+  msgRowOther:    { alignSelf: 'flex-start' as const,  maxWidth: '88%' },
+  miniAvatar:     { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' as const },
+  bubbleColLeft:  { flexShrink: 1, gap: 2, alignItems: 'flex-start' as const },
+  bubbleColRight: { flexShrink: 1, gap: 2, alignItems: 'flex-end' as const },
+  bubble:         { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
+  bubbleLeft:     { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e4ebff', borderBottomLeftRadius: 4 },
+  bubbleRight:    { backgroundColor: '#4f7cff', borderBottomRightRadius: 4 },
+  bubbleTxt:      { fontSize: 13, lineHeight: 19, flexShrink: 1, flexWrap: 'wrap' as const },
+  bubbleTxtLeft:  { color: '#1f2a58' },
+  bubbleTxtRight: { color: '#fff' },
+  timeStamp:      { fontSize: 10, color: '#94a3b8' },
+  inputBar:       { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e4ebff', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 8 },
+  chatInput:      { flex: 1, backgroundColor: '#f1f5f9', borderRadius: 18, borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: 14, paddingVertical: 9, color: '#1f2a58', fontSize: 13, maxHeight: 88 },
+  sendBtn:        { width: 38, height: 38, borderRadius: 19, backgroundColor: '#4f7cff', alignItems: 'center', justifyContent: 'center' },
+  sendBtnOff:     { backgroundColor: '#e2e8f0' },
 });

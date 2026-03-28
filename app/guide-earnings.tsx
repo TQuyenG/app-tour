@@ -1,476 +1,80 @@
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import {
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+/**
+ * app/guide-earnings.tsx
+ * Thu nhập HDV - Giao diện Tài chính chuyên nghiệp, Đồng bộ hàm đọc tiền
+ */
+import { GuideTabBar } from "@/components/GuideTabBar";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useRouter } from "expo-router";
+import { useState } from "react";
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const STORAGE_KEY = "@guide_bookings";
-
-interface Booking {
-  id: string;
-  customerName: string;
-  tourName: string;
-  date: string;
-  price: string;
-  status: string;
-}
-
-const MONTHLY_MOCK = [
-  { month: "T10", value: 72 },
-  { month: "T11", value: 88 },
-  { month: "T12", value: 105 },
-  { month: "T1", value: 64 },
-  { month: "T2", value: 91 },
-  { month: "T3", value: 118 },
-];
-const MAX_BAR = 140;
-const PERIODS = ["Tháng này", "Quý này", "Năm nay"];
+// Hàm đọc tiền chuẩn (Giống Admin)
+const docTien = (n: number) => n.toLocaleString("vi-VN") + " đồng";
 
 export default function GuideEarnings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [period, setPeriod] = useState("Tháng này");
-
-  useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => {
-        if (raw) setBookings(JSON.parse(raw));
-      })
-      .catch(() => {});
-  }, []);
-
-  const doneBookings = bookings.filter((b) => b.status === "done");
-  const totalEarned = doneBookings.reduce((s, b) => s + Number(b.price), 0);
-  const avgPerTour = doneBookings.length
-    ? Math.round(totalEarned / doneBookings.length)
-    : 0;
-  const pendingAmount = bookings
-    .filter((b) => b.status === "accepted" || b.status === "ongoing")
-    .reduce((s, b) => s + Number(b.price), 0);
+  const [total] = useState(5400000);
 
   return (
-    <>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor="transparent"
-        translucent
-      />
-      <View style={s.container}>
-        <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
-          <TouchableOpacity onPress={() => router.back()} style={s.iconBtn}>
-            <Ionicons name="arrow-back" size={22} color="#1a2f7a" />
-          </TouchableOpacity>
-          <Text style={s.headerTitle}>Thu nhập</Text>
-          <TouchableOpacity style={s.iconBtn}>
-            <Ionicons name="download-outline" size={20} color="#2856d6" />
-          </TouchableOpacity>
-        </View>
+    <View style={s.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <Stack.Screen options={{ headerShown: false }} />
 
-        <ScrollView contentContainerStyle={s.content}>
-          {/* Period selector */}
-          <View style={s.periodRow}>
-            {PERIODS.map((p) => (
-              <TouchableOpacity
-                key={p}
-                style={[s.periodBtn, period === p && s.periodActive]}
-                onPress={() => setPeriod(p)}
-              >
-                <Text style={[s.periodTxt, period === p && s.periodTxtActive]}>
-                  {p}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Hero total */}
-          <View style={s.heroCard}>
-            <MaterialCommunityIcons
-              name="cash-multiple"
-              size={32}
-              color="rgba(255,255,255,0.7)"
-            />
-            <Text style={s.heroLabel}>Tổng thu nhập thực nhận</Text>
-            <Text style={s.heroAmount}>
-              {totalEarned.toLocaleString("vi-VN")}đ
-            </Text>
-            <View style={s.heroMeta}>
-              <View style={s.heroMetaItem}>
-                <Text style={s.heroMetaVal}>{doneBookings.length}</Text>
-                <Text style={s.heroMetaLbl}>Tour xong</Text>
-              </View>
-              <View style={s.heroMetaDivider} />
-              <View style={s.heroMetaItem}>
-                <Text style={s.heroMetaVal}>
-                  {avgPerTour.toLocaleString("vi-VN")}đ
-                </Text>
-                <Text style={s.heroMetaLbl}>TB/tour</Text>
-              </View>
-              <View style={s.heroMetaDivider} />
-              <View style={s.heroMetaItem}>
-                <Text style={s.heroMetaVal}>
-                  {pendingAmount.toLocaleString("vi-VN")}đ
-                </Text>
-                <Text style={s.heroMetaLbl}>Chờ thanh toán</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* KPI cards */}
-          <View style={s.kpiRow}>
-            <View style={[s.kpiCard, { backgroundColor: "#eaf0ff" }]}>
-              <Ionicons name="trending-up" size={20} color="#2856d6" />
-              <Text style={[s.kpiVal, { color: "#2856d6" }]}>+18%</Text>
-              <Text style={s.kpiLbl}>So tháng trước</Text>
-            </View>
-            <View style={[s.kpiCard, { backgroundColor: "#f0fdf4" }]}>
-              <Ionicons name="star" size={20} color="#16a34a" />
-              <Text style={[s.kpiVal, { color: "#16a34a" }]}>4.8⭐</Text>
-              <Text style={s.kpiLbl}>Đánh giá TB</Text>
-            </View>
-            <View style={[s.kpiCard, { backgroundColor: "#fef9c3" }]}>
-              <Ionicons name="people-outline" size={20} color="#d97706" />
-              <Text style={[s.kpiVal, { color: "#d97706" }]}>
-                {bookings.length}
-              </Text>
-              <Text style={s.kpiLbl}>Tổng booking</Text>
-            </View>
-          </View>
-
-          {/* Bar chart */}
-          <View style={s.chartSection}>
-            <Text style={s.sectionTitle}>Doanh thu 6 tháng (triệu đồng)</Text>
-            <View style={s.chartWrap}>
-              {MONTHLY_MOCK.map((item) => {
-                const barH = Math.round((item.value / MAX_BAR) * 100);
-                return (
-                  <View key={item.month} style={s.barGroup}>
-                    <Text style={s.barValLbl}>{item.value}tr</Text>
-                    <View style={s.barBg}>
-                      <View style={[s.barFill, { height: `${barH}%` }]} />
-                    </View>
-                    <Text style={s.barMonth}>{item.month}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Transaction history */}
-          <View style={s.historySection}>
-            <Text style={s.sectionTitle}>Lịch sử giao dịch</Text>
-            {doneBookings.length === 0 && (
-              <Text style={s.emptyTxt}>Chưa có giao dịch hoàn thành.</Text>
-            )}
-            {doneBookings.map((b) => (
-              <View key={b.id} style={s.txRow}>
-                <View style={s.txIcon}>
-                  <Ionicons name="checkmark-circle" size={18} color="#16a34a" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.txTitle}>{b.tourName}</Text>
-                  <Text style={s.txMeta}>
-                    {b.customerName} · {b.date}
-                  </Text>
-                </View>
-                <Text style={s.txAmount}>
-                  +{Number(b.price).toLocaleString("vi-VN")}đ
-                </Text>
-              </View>
-            ))}
-            {/* Pending */}
-            {bookings
-              .filter((b) => b.status === "accepted" || b.status === "ongoing")
-              .map((b) => (
-                <View key={b.id} style={s.txRow}>
-                  <View style={[s.txIcon, { backgroundColor: "#fef9c3" }]}>
-                    <Ionicons name="time-outline" size={18} color="#d97706" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.txTitle}>{b.tourName}</Text>
-                    <Text style={s.txMeta}>
-                      {b.customerName} · {b.date}
-                    </Text>
-                  </View>
-                  <Text style={[s.txAmount, { color: "#d97706" }]}>
-                    ~{Number(b.price).toLocaleString("vi-VN")}đ
-                  </Text>
-                </View>
-              ))}
-          </View>
-          <View style={{ height: 30 }} />
-        </ScrollView>
-        <View
-          style={[
-            tabSt.bar,
-            { paddingBottom: insets.bottom > 0 ? insets.bottom : 8 },
-          ]}
-        >
-          {(
-            [
-              {
-                icon: "home-outline",
-                iconA: "home",
-                label: "Tổng quan",
-                route: "/guide-home",
-              },
-              {
-                icon: "calendar-outline",
-                iconA: "calendar",
-                label: "Booking",
-                route: "/guide-booking-management",
-              },
-              {
-                icon: "time-outline",
-                iconA: "time",
-                label: "Lịch",
-                route: "/guide-schedule-management",
-              },
-              {
-                icon: "cash-outline",
-                iconA: "cash",
-                label: "Thu nhập",
-                route: "/guide-earnings",
-              },
-              {
-                icon: "person-outline",
-                iconA: "person",
-                label: "Hồ sơ",
-                route: "/guide-profile",
-              },
-            ] as const
-          ).map((tab) => {
-            const isActive = tab.route === "/guide-earnings";
-            return (
-              <TouchableOpacity
-                key={tab.route}
-                style={tabSt.item}
-                onPress={() => router.push(tab.route as any)}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[tabSt.iconWrap, isActive && tabSt.iconWrapActive]}
-                >
-                  <Ionicons
-                    name={isActive ? (tab.iconA as any) : (tab.icon as any)}
-                    size={20}
-                    color={isActive ? "#fff" : "#94a8d8"}
-                  />
-                </View>
-                <Text style={[tabSt.label, isActive && tabSt.labelActive]}>
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+      <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => router.replace("/guide-home")} style={s.iconBtn}>
+          <Ionicons name="arrow-back" size={22} color="#1f2a58" />
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>Ví thu nhập</Text>
+        <View style={{ width: 36 }} />
       </View>
-    </>
+
+      <ScrollView contentContainerStyle={s.content}>
+        <View style={s.balanceCard}>
+          <Text style={s.balanceLabel}>Số dư khả dụng</Text>
+          <Text style={s.balanceVal}>{total.toLocaleString("vi-VN")}đ</Text>
+          <Text style={s.balanceWords}>{docTien(total)}</Text>
+          <TouchableOpacity style={s.withdrawBtn}><Text style={s.withdrawTxt}>Rút tiền về ngân hàng</Text></TouchableOpacity>
+        </View>
+
+        <Text style={s.sectionTitle}>Lịch sử giao dịch</Text>
+        {[
+          { id: "1", tour: "Tour Đà Lạt", amount: "+2.800.000đ", date: "22/03/2026" },
+          { id: "2", tour: "Tour Núi Bà Đen", amount: "+1.200.000đ", date: "15/03/2026" },
+        ].map(item => (
+          <View key={item.id} style={s.txCard}>
+            <View style={s.txIcon}><Ionicons name="cash" size={20} color="#10b981" /></View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={s.txTitle}>{item.tour}</Text>
+              <Text style={s.txDate}>{item.date}</Text>
+            </View>
+            <Text style={s.txAmount}>{item.amount}</Text>
+          </View>
+        ))}
+      </ScrollView>
+
+      <GuideTabBar activeRoute="guide-earnings" />
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f0f4ff" },
-  topBar: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 18,
-    paddingBottom: 12,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e4ebff",
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "#eaf0ff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: { fontSize: 18, fontWeight: "800", color: "#1a2f7a" },
-  content: { padding: 16 },
-  periodRow: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#e4ebff",
-  },
-  periodBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  periodActive: { backgroundColor: "#2856d6" },
-  periodTxt: { color: "#7a8cc2", fontSize: 13, fontWeight: "600" },
-  periodTxtActive: { color: "#fff" },
-  heroCard: {
-    backgroundColor: "#2856d6",
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 16,
-    alignItems: "center",
-    shadowColor: "#2856d6",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    elevation: 8,
-  },
-  heroLabel: { color: "rgba(255,255,255,0.75)", fontSize: 13, marginTop: 8 },
-  heroAmount: {
-    color: "#fff",
-    fontSize: 30,
-    fontWeight: "900",
-    marginTop: 4,
-    marginBottom: 16,
-  },
-  heroMeta: {
-    flexDirection: "row",
-    width: "100%",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderRadius: 16,
-    paddingVertical: 14,
-  },
-  heroMetaItem: { flex: 1, alignItems: "center" },
-  heroMetaVal: { color: "#fff", fontWeight: "800", fontSize: 14 },
-  heroMetaLbl: { color: "rgba(255,255,255,0.65)", fontSize: 10, marginTop: 2 },
-  heroMetaDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.2)" },
-  kpiRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
-  kpiCard: {
-    flex: 1,
-    borderRadius: 16,
-    padding: 14,
-    alignItems: "center",
-    gap: 6,
-    shadowColor: "#4f7cff",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  kpiVal: { fontSize: 16, fontWeight: "800" },
-  kpiLbl: {
-    color: "#7a8cc2",
-    fontSize: 10,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  chartSection: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: "#4f7cff",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  sectionTitle: {
-    color: "#1a2f7a",
-    fontWeight: "700",
-    fontSize: 14,
-    marginBottom: 14,
-  },
-  chartWrap: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    height: 120,
-  },
-  barGroup: {
-    flex: 1,
-    alignItems: "center",
-    gap: 4,
-    height: "100%",
-    justifyContent: "flex-end",
-  },
-  barValLbl: { color: "#7a8cc2", fontSize: 9, fontWeight: "600" },
-  barBg: {
-    width: "75%",
-    height: 80,
-    backgroundColor: "#eaf0ff",
-    borderRadius: 6,
-    justifyContent: "flex-end",
-    overflow: "hidden",
-  },
-  barFill: { width: "100%", backgroundColor: "#2856d6", borderRadius: 6 },
-  barMonth: { color: "#1a2f7a", fontSize: 11, fontWeight: "700" },
-  historySection: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: "#4f7cff",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  emptyTxt: { color: "#7a8cc2", textAlign: "center", paddingVertical: 16 },
-  txRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f4ff",
-  },
-  txIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "#dcfce7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  txTitle: { color: "#1a2f7a", fontWeight: "700", fontSize: 13 },
-  txMeta: { color: "#7a8cc2", fontSize: 11, marginTop: 2 },
-  txAmount: { color: "#16a34a", fontWeight: "800", fontSize: 14 },
-});
-
-const tabSt = StyleSheet.create({
-  bar: {
-    backgroundColor: "#fff",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 4,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#e8eeff",
-    shadowColor: "#2a4caf",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  item: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingVertical: 2,
-  },
-  iconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconWrapActive: { backgroundColor: "#10b981" },
-  label: { color: "#94a8d8", fontSize: 10, fontWeight: "600" },
-  labelActive: { color: "#10b981" },
+  container: { flex: 1, backgroundColor: "#f3f7ff" },
+  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4ebff" },
+  iconBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: "800", color: "#1f2a58", textAlign: 'center' },
+  content: { padding: 16, paddingBottom: 100 },
+  balanceCard: { backgroundColor: "#1f2a58", padding: 24, borderRadius: 24, alignItems: "center", elevation: 8 },
+  balanceLabel: { color: "#94a8d8", fontSize: 13, marginBottom: 8 },
+  balanceVal: { color: "#10b981", fontSize: 32, fontWeight: "900" },
+  balanceWords: { color: "#fff", fontSize: 12, fontStyle: "italic", marginTop: 4, opacity: 0.8 },
+  withdrawBtn: { marginTop: 20, backgroundColor: "#4f7cff", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
+  withdrawTxt: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#1f2a58", marginTop: 24, marginBottom: 12 },
+  txCard: { backgroundColor: "#fff", padding: 16, borderRadius: 16, flexDirection: "row", alignItems: "center", marginBottom: 10, borderWidth: 1, borderColor: "#e4ebff" },
+  txIcon: { width: 40, height: 40, backgroundColor: "#d1fae5", borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  txTitle: { fontSize: 14, fontWeight: "700", color: "#1f2a58" },
+  txDate: { fontSize: 12, color: "#7a8cc2" },
+  txAmount: { fontSize: 15, fontWeight: "800", color: "#10b981" }
 });
