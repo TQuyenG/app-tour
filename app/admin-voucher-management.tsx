@@ -1,21 +1,13 @@
-/**
- * app/admin-voucher-management.tsx
- * Admin quản lý Voucher siêu chi tiết
- * Đã fix lỗi không hiện Lịch (Hỗ trợ Web Fallback và Fix Z-index Modal iOS)
- */
-import { AdminTabBar } from "@/components/AdminTabBar";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker from "@react-native-community/datetimepicker";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
-  FlatList,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -24,98 +16,150 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const STORAGE_KEY = "@admin_vouchers_advanced";
+const STORAGE_KEY = "@admin_vouchers";
 
+type VoucherStatus = "active" | "full" | "expired";
 type VoucherType = "percent" | "fixed";
-type VoucherGroup = "discount" | "shipping" | "partner";
-type VoucherStatus = "active" | "hidden";
-
 interface Voucher {
   id: string;
   code: string;
-  title: string;
   description: string;
+  discount: string;
   type: VoucherType;
-  discountValue: number;
-  maxDiscount: number; 
-  minOrderValue: number;
-  usageLimit: number;
-  usedCount: number;
-  startDate: string;
-  endDate: string;
-  group: VoucherGroup;
+  minOrder: string;
+  maxDiscount: string;
+  used: number;
+  limit: number;
+  expiry: string;
   status: VoucherStatus;
   color: string;
 }
 
-const COLORS = ["#4f7cff", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
-
-const SEED_VOUCHERS: Voucher[] = [
+const SEED: Voucher[] = [
   {
-    id: "v1", code: "HE2026", title: "Giảm 10% Tour Biển", description: "Áp dụng cho tất cả tour Biển Đảo. Tối đa 500k.",
-    type: "percent", discountValue: 10, maxDiscount: 500000, minOrderValue: 2000000,
-    usageLimit: 100, usedCount: 85, startDate: "01/06/2026 00:00", endDate: "30/08/2026 23:59", group: "discount", status: "active", color: "#4f7cff"
+    id: "1",
+    code: "SUMMER35",
+    description: "Ưu đãi mùa hè – Giảm 35% tất cả tour biển",
+    discount: "35",
+    type: "percent",
+    minOrder: "2000000",
+    maxDiscount: "500000",
+    used: 28,
+    limit: 100,
+    expiry: "31/08/2025",
+    status: "active",
+    color: "#4f7cff",
   },
   {
-    id: "v2", code: "FREESHIP", title: "Miễn phí đón tiễn", description: "Áp dụng cho đơn từ 5 triệu. Hỗ trợ xe đưa đón.",
-    type: "fixed", discountValue: 250000, maxDiscount: 250000, minOrderValue: 5000000,
-    usageLimit: 50, usedCount: 50, startDate: "15/05/2026 08:00", endDate: "15/07/2026 22:00", group: "shipping", status: "active", color: "#10b981"
-  }
+    id: "2",
+    code: "NEWUSER200",
+    description: "Chào mừng thành viên mới – Giảm 200.000đ",
+    discount: "200000",
+    type: "fixed",
+    minOrder: "1500000",
+    maxDiscount: "200000",
+    used: 67,
+    limit: 200,
+    expiry: "31/12/2025",
+    status: "active",
+    color: "#10b981",
+  },
+  {
+    id: "3",
+    code: "FLASH50",
+    description: "Flash sale 50% – Tour cao nguyên cuối tuần",
+    discount: "50",
+    type: "percent",
+    minOrder: "3000000",
+    maxDiscount: "800000",
+    used: 50,
+    limit: 50,
+    expiry: "15/07/2025",
+    status: "full",
+    color: "#f59e0b",
+  },
+  {
+    id: "4",
+    code: "HANOI100",
+    description: "Đặc quyền khách Hà Nội – Giảm 100.000đ",
+    discount: "100000",
+    type: "fixed",
+    minOrder: "1000000",
+    maxDiscount: "100000",
+    used: 12,
+    limit: 80,
+    expiry: "01/06/2025",
+    status: "expired",
+    color: "#8b5cf6",
+  },
+  {
+    id: "5",
+    code: "VIP20",
+    description: "Dành cho khách VIP – Giảm 20% không giới hạn",
+    discount: "20",
+    type: "percent",
+    minOrder: "5000000",
+    maxDiscount: "1000000",
+    used: 5,
+    limit: 30,
+    expiry: "31/12/2025",
+    status: "active",
+    color: "#ef4444",
+  },
 ];
 
-const formatVND = (val: number) => val.toLocaleString("vi-VN") + "đ";
-
-const docTien = (number: number): string => {
-  if (!number || number === 0) return "0 đồng";
-  const chuSo = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"];
-  const donVi = ["", "nghìn", "triệu", "tỷ"];
-
-  const docBlock = (so: number, dayDu: boolean) => {
-    let chuoi = "";
-    let tram = Math.floor(so / 100);
-    let chuc = Math.floor((so % 100) / 10);
-    let donvi = so % 10;
-    if (dayDu || tram > 0) { chuoi += chuSo[tram] + " trăm "; if (chuc === 0 && donvi > 0) chuoi += "lẻ "; }
-    if (chuc === 1) chuoi += "mười "; else if (chuc > 1) chuoi += chuSo[chuc] + " mươi ";
-    if (chuc > 0 && donvi === 1) chuoi += "mốt "; else if (chuc > 0 && donvi === 5) chuoi += "lăm "; else if (donvi > 0) chuoi += chuSo[donvi] + " ";
-    return chuoi.trim();
-  };
-
-  let chuoiKetQua = "";
-  let i = 0; let so = number;
-  while (so > 0) {
-    let block = so % 1000;
-    let dayDu = Math.floor(number / Math.pow(1000, i + 1)) > 0;
-    if (block > 0) { let strBlock = docBlock(block, dayDu); chuoiKetQua = strBlock + " " + donVi[i] + " " + chuoiKetQua; }
-    i++; so = Math.floor(so / 1000);
-  }
-  chuoiKetQua = chuoiKetQua.replace(/\s+/g, ' ').trim() + " đồng";
-  return chuoiKetQua.charAt(0).toUpperCase() + chuoiKetQua.slice(1);
+const STATUS_OPTIONS: VoucherStatus[] = ["active", "full", "expired"];
+const STATUS_MAP = {
+  active: { label: "Đang dùng", color: "#16a34a", bg: "#dcfce7" },
+  full: { label: "Hết lượt", color: "#d97706", bg: "#fef9c3" },
+  expired: { label: "Hết hạn", color: "#dc2626", bg: "#fee2e2" },
+};
+const ACCENT_COLORS = [
+  "#4f7cff",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ef4444",
+  "#06b6d4",
+];
+const EMPTY: Omit<Voucher, "id"> = {
+  code: "",
+  description: "",
+  discount: "",
+  type: "percent",
+  minOrder: "",
+  maxDiscount: "",
+  used: 0,
+  limit: 100,
+  expiry: "",
+  status: "active",
+  color: "#4f7cff",
 };
 
-export default function AdminVoucherManagementScreen() {
+export default function AdminVoucherManagement() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterGroup, setFilterGroup] = useState<VoucherGroup | "all">("all");
-  const [viewMode, setViewMode] = useState<"list" | "table">("list"); 
-  
+  const [search, setSearch] = useState("");
+  const [selStatus, setSelStatus] = useState<string>("Tất cả");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingVoucher, setEditingVoucher] = useState<Partial<Voucher>>({});
+  const [editing, setEditing] = useState<Voucher | null>(null);
+  const [form, setForm] = useState<Omit<Voucher, "id">>(EMPTY);
+  const [saving, setSaving] = useState(false);
 
-  // STATE CHO DATETIME PICKER
-  const [showPicker, setShowPicker] = useState(false);
-  const [pickerMode, setPickerMode] = useState<"date" | "time">("date");
-  const [pickerField, setPickerField] = useState<"startDate" | "endDate">("startDate");
-  const [pickerDate, setPickerDate] = useState(new Date());
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY)
+      .then((raw) => {
+        if (raw) setVouchers(JSON.parse(raw));
+        else {
+          setVouchers(SEED);
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED));
+        }
+      })
+      .catch(() => setVouchers(SEED));
+  }, []);
 
-<<<<<<< Updated upstream
-  const [confirmPopup, setConfirmPopup] = useState<{
-    visible: boolean; type: "distribute" | "delete" | "success" | "error"; title: string; message: string; targetVoucher?: Voucher;
-  }>({ visible: false, type: "success", title: "", message: "" });
-=======
   const persist = useCallback(async (data: Voucher[]) => {
     setVouchers(data);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
@@ -138,44 +182,57 @@ export default function AdminVoucherManagementScreen() {
     }));
     await AsyncStorage.setItem("@promo_codes", JSON.stringify(promoCodes)).catch(() => {});
   }, []);
->>>>>>> Stashed changes
 
-  useFocusEffect(useCallback(() => { loadVouchers(); }, []));
-
-  const loadVouchers = async () => {
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) setVouchers(JSON.parse(raw) || []);
-      else { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_VOUCHERS)); setVouchers(SEED_VOUCHERS); }
-    } catch (e) { setVouchers([]); }
+  const openAdd = () => {
+    setEditing(null);
+    setForm(EMPTY);
+    setModalVisible(true);
   };
-
-  const openModal = (item?: Voucher) => {
-    if (item) setEditingVoucher(item);
-    else setEditingVoucher({
-      id: `v-${Date.now()}`, code: "", title: "", description: "",
-      type: "percent", discountValue: 0, maxDiscount: 0, minOrderValue: 0,
-      usageLimit: 100, usedCount: 0, startDate: "", endDate: "",
-      group: "discount", status: "active", color: COLORS[Math.floor(Math.random() * COLORS.length)]
+  const openEdit = (v: Voucher) => {
+    setEditing(v);
+    setForm({
+      code: v.code,
+      description: v.description,
+      discount: v.discount,
+      type: v.type,
+      minOrder: v.minOrder,
+      maxDiscount: v.maxDiscount,
+      used: v.used,
+      limit: v.limit,
+      expiry: v.expiry,
+      status: v.status,
+      color: v.color,
     });
-    setShowPicker(false);
     setModalVisible(true);
   };
 
-  const handleNumericInput = (field: keyof Voucher, value: string) => {
-    const num = parseInt(value.replace(/\D/g, "")) || 0;
-    setEditingVoucher(prev => ({ ...prev, [field]: num }));
+  const handleSave = async () => {
+    if (!form.code.trim() || !form.discount.trim()) {
+      Alert.alert("Thiếu thông tin", "Vui lòng điền Mã voucher và Mức giảm.");
+      return;
+    }
+    setSaving(true);
+    const codeUpper = form.code.toUpperCase().trim();
+    const duplicate = vouchers.find(
+      (v) => v.code === codeUpper && v.id !== editing?.id,
+    );
+    if (duplicate) {
+      Alert.alert("Trùng mã", `Mã "${codeUpper}" đã tồn tại.`);
+      setSaving(false);
+      return;
+    }
+    const updated = editing
+      ? vouchers.map((v) =>
+          v.id === editing.id
+            ? { ...form, code: codeUpper, id: editing.id }
+            : v,
+        )
+      : [...vouchers, { ...form, code: codeUpper, id: Date.now().toString() }];
+    await persist(updated);
+    setSaving(false);
+    setModalVisible(false);
   };
 
-<<<<<<< Updated upstream
-  // LOGIC MỞ LỊCH ĐÃ ĐƯỢC LÀM LẠI
-  const handleOpenPicker = (field: "startDate" | "endDate") => {
-    setPickerField(field);
-    setPickerMode("date"); 
-    setPickerDate(new Date()); 
-    setShowPicker(true);
-  };
-=======
   const handleDelete = (v: Voucher) =>
     Alert.alert(
       "Xóa voucher",
@@ -198,127 +255,82 @@ export default function AdminVoucherManagementScreen() {
         },
       ],
     );
->>>>>>> Stashed changes
 
-  const saveDateToString = (d: Date, field: string) => {
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    const hrs = String(d.getHours()).padStart(2, '0');
-    const mins = String(d.getMinutes()).padStart(2, '0');
-    setEditingVoucher(prev => ({ ...prev, [field]: `${day}/${month}/${year} ${hrs}:${mins}` }));
-  };
+  const f = (k: keyof Omit<Voucher, "id">, v: string | number) =>
+    setForm((p) => ({ ...p, [k]: v }));
 
-  const onPickerChange = (event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      if (event.type === "dismissed") {
-        setShowPicker(false);
-        return;
-      }
-      const currentDate = selectedDate || pickerDate;
-      setPickerDate(currentDate);
-
-      if (pickerMode === "date") {
-        setPickerMode("time"); // Chọn xong ngày thì mở đồng hồ
-      } else {
-        setShowPicker(false); // Chọn xong giờ thì tắt
-        saveDateToString(currentDate, pickerField);
-      }
-    } else {
-      // iOS chỉ lưu tạm Date
-      if (selectedDate) setPickerDate(selectedDate);
-    }
-  };
-
-  const confirmIOSPicker = () => {
-    setShowPicker(false);
-    saveDateToString(pickerDate, pickerField);
-  };
-
-  const saveVoucher = async () => {
-    if (!editingVoucher.code || !editingVoucher.title || !editingVoucher.discountValue) {
-      setConfirmPopup({ visible: true, type: "error", title: "Lỗi", message: "Mã, Tiêu đề và Giá trị giảm không được để trống." });
-      return;
-    }
-    try {
-      let updated = [...vouchers];
-      const isNew = !vouchers.find(v => v.id === editingVoucher.id);
-      if (isNew) updated.unshift(editingVoucher as Voucher);
-      else updated = updated.map((v) => v.id === editingVoucher.id ? editingVoucher as Voucher : v);
-      
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      setVouchers(updated);
-      setModalVisible(false);
-      setConfirmPopup({ visible: true, type: "success", title: "Thành công", message: "Đã lưu Voucher." });
-    } catch (error) {}
-  };
-
-  const promptDistribute = (voucher: Voucher) => { setConfirmPopup({ visible: true, type: "distribute", title: "Phát hành Voucher", message: `Gửi mã "${voucher.code}" qua thông báo đẩy đến tất cả Khách hàng?`, targetVoucher: voucher }); };
-  const promptDelete = (voucher: Voucher) => { setConfirmPopup({ visible: true, type: "delete", title: "Xóa Voucher", message: `Bạn muốn xóa mã "${voucher.code}"?`, targetVoucher: voucher }); };
-
-  const executeAction = async () => {
-    if (!confirmPopup.targetVoucher) return;
-    try {
-      if (confirmPopup.type === "delete") {
-        const updated = vouchers.filter((v) => v.id !== confirmPopup.targetVoucher!.id);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        setVouchers(updated);
-        setConfirmPopup({ visible: true, type: "success", title: "Đã xóa", message: "Voucher đã được xóa khỏi hệ thống." });
-      } else if (confirmPopup.type === "distribute") {
-        setConfirmPopup({ visible: true, type: "success", title: "Đã phát hành", message: `Đã gửi mã giảm giá đến toàn bộ thiết bị khách hàng!` });
-      }
-    } catch (e) {}
-  };
-
-  const getGroupLabel = (group: string) => {
-    switch(group) {
-      case "discount": return "Giảm giá Tour";
-      case "shipping": return "Đưa đón/Vận chuyển";
-      case "partner": return "Đối tác/Thanh toán";
-      default: return "Khác";
-    }
-  };
-
-  const getRealStatus = (v: Voucher) => {
-    if (v.status === "hidden") return { label: "Đã ẩn", color: "#64748b", bg: "#f1f5f9" };
-    if (v.usedCount >= v.usageLimit) return { label: "Hết lượt", color: "#dc2626", bg: "#fee2e2" };
-    return { label: "Đang chạy", color: "#059669", bg: "#d1fae5" };
-  };
-
-  const filteredVouchers = vouchers.filter(v => {
-    const matchSearch = (v.code||"").toLowerCase().includes(searchQuery.toLowerCase()) || (v.title||"").toLowerCase().includes(searchQuery.toLowerCase());
-    const matchGroup = filterGroup === "all" || v.group === filterGroup;
-    return matchSearch && matchGroup;
+  const filtered = vouchers.filter((v) => {
+    const matchStatus = selStatus === "Tất cả" || v.status === selStatus;
+    const matchSearch =
+      !search.trim() ||
+      v.code.toLowerCase().includes(search.toLowerCase()) ||
+      v.description.toLowerCase().includes(search.toLowerCase());
+    return matchStatus && matchSearch;
   });
 
+  const totalUsed = vouchers.reduce((s, v) => s + v.used, 0);
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f3f7ff" />
-      <Stack.Screen options={{ headerShown: false }} />
-      
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace("/admin-home")}>
-          <Ionicons name="chevron-back" size={24} color="#1f2a58" />
+    <View style={s.container}>
+      <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => router.back()} style={s.iconBtn}>
+          <Ionicons name="arrow-back" size={22} color="#1f2a58" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Quản lý Khuyến mãi</Text>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <TouchableOpacity style={styles.iconTopBtn} onPress={() => setViewMode(prev => prev === "list" ? "table" : "list")}>
-            <Ionicons name={viewMode === "list" ? "list" : "grid"} size={20} color="#4f7cff" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.addBtn} onPress={() => openModal()}>
-            <Ionicons name="add" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        <Text style={s.headerTitle}>Quản lý Voucher</Text>
+        <TouchableOpacity
+          style={[s.iconBtn, { backgroundColor: "#4f7cff" }]}
+          onPress={openAdd}
+        >
+          <Ionicons name="add" size={22} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-<<<<<<< Updated upstream
-      <View style={styles.searchRow}>
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={20} color="#94a8d8" />
-          <TextInput style={styles.searchInput} placeholder="Tìm mã hoặc tên khuyến mãi..." placeholderTextColor="#94a8d8" value={searchQuery} onChangeText={setSearchQuery} />
-        </View>
+      <View style={s.statsRow}>
+        {[
+          { l: "Tổng", v: vouchers.length, c: "#1f2a58" },
+          {
+            l: "Đang dùng",
+            v: vouchers.filter((x) => x.status === "active").length,
+            c: "#16a34a",
+          },
+          { l: "Lượt dùng", v: totalUsed, c: "#4f7cff" },
+          {
+            l: "Hết hạn",
+            v: vouchers.filter((x) => x.status === "expired").length,
+            c: "#dc2626",
+          },
+        ].map((item, i, arr) => (
+          <View
+            key={item.l}
+            style={[s.statItem, i < arr.length - 1 && s.statBorder]}
+          >
+            <Text style={[s.statNum, { color: item.c }]}>{item.v}</Text>
+            <Text style={s.statLbl}>{item.l}</Text>
+          </View>
+        ))}
       </View>
-=======
+
+      <View style={s.searchWrap}>
+        <MaterialCommunityIcons
+          name="ticket-percent-outline"
+          size={16}
+          color="#8ea0d6"
+        />
+        <TextInput
+          style={s.searchInput}
+          placeholder="Tìm mã voucher, mô tả..."
+          value={search}
+          onChangeText={setSearch}
+          placeholderTextColor="#8ea0d6"
+          autoCapitalize="characters"
+        />
+        {!!search && (
+          <TouchableOpacity onPress={() => setSearch("")}>
+            <Ionicons name="close-circle" size={16} color="#8ea0d6" />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -343,339 +355,400 @@ export default function AdminVoucherManagementScreen() {
           );
         })}
       </ScrollView>
->>>>>>> Stashed changes
 
-      <View style={styles.filtersWrapper}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-          {(["all", "discount", "shipping", "partner"] as const).map(grp => (
-            <TouchableOpacity key={grp} style={[styles.filterChip, filterGroup === grp && styles.filterChipActive]} onPress={() => setFilterGroup(grp)}>
-              <Text style={[styles.filterTxt, filterGroup === grp && styles.filterTxtActive]}>{grp === "all" ? "Tất cả nhóm" : getGroupLabel(grp)}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+      <Text style={s.resultText}>{filtered.length} voucher</Text>
 
-      {/* RENDER LIST OR TABLE */}
-      {viewMode === "list" ? (
-        <FlatList
-          data={filteredVouchers}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => {
-            const st = getRealStatus(item);
-            return (
-              <View style={styles.card}>
-                <TouchableOpacity style={styles.cardInfo} onPress={() => openModal(item)} activeOpacity={0.7}>
-                  <View style={styles.codeRow}>
-                    <Text style={[styles.codeTxt, { color: item.color || "#4f7cff" }]}>{item.code}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: st.bg }]}><Text style={[styles.statusTxt, { color: st.color }]}>{st.label}</Text></View>
-                  </View>
-                  <Text style={styles.titleTxt}>{item.title}</Text>
-                  <Text style={styles.descTxt} numberOfLines={2}>{item.description}</Text>
-                  
-                  <View style={styles.metaGrid}>
-                    <View style={styles.metaItem}><Ionicons name="calendar-outline" size={14} color="#7a8cc2" /><Text style={styles.metaTxt}>{item.startDate} đến {item.endDate}</Text></View>
-                    <View style={styles.metaItem}><Ionicons name="pricetag-outline" size={14} color="#7a8cc2" /><Text style={styles.metaTxt}>Đơn tối thiểu: {formatVND(item.minOrderValue)}</Text></View>
-                  </View>
-
-                  <View style={styles.progressContainer}>
-                    <View style={styles.progressRow}>
-                      <Text style={styles.progressLabel}>Lượt dùng: {item.usedCount} / {item.usageLimit}</Text>
-                      <Text style={styles.progressLabel}>{Math.round(((item.usedCount)/(item.usageLimit||1))*100)}%</Text>
-                    </View>
-                    <View style={styles.progressBarBg}>
-                      <View style={[styles.progressBarFill, { width: `${((item.usedCount)/(item.usageLimit||1))*100}%`, backgroundColor: item.color || "#4f7cff" }]} />
-                    </View>
-                  </View>
-                </TouchableOpacity>
-
-                <View style={styles.cardActionsCol}>
-                  <TouchableOpacity style={[styles.actionSideBtn, { backgroundColor: "#eaf0ff" }]} onPress={() => promptDistribute(item)}><Ionicons name="paper-plane" size={20} color="#4f7cff" /></TouchableOpacity>
-                  <TouchableOpacity style={[styles.actionSideBtn, { backgroundColor: "#fee2e2", marginTop: 8 }]} onPress={() => promptDelete(item)}><Ionicons name="trash" size={20} color="#ef4444" /></TouchableOpacity>
-                </View>
-              </View>
-            );
-          }}
-        />
-      ) : (
-        <ScrollView horizontal style={styles.tableWrapper} showsHorizontalScrollIndicator={false}>
-          <View>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.thCell, { width: 120 }]}>Mã Voucher</Text>
-              <Text style={[styles.thCell, { width: 200 }]}>Tiêu đề / Mức giảm</Text>
-              <Text style={[styles.thCell, { width: 140 }]}>Nhóm</Text>
-              <Text style={[styles.thCell, { width: 120 }]}>Đã dùng / Tổng</Text>
-              <Text style={[styles.thCell, { width: 220 }]}>Thời hạn</Text>
-              <Text style={[styles.thCell, { width: 100 }]}>Trạng thái</Text>
-              <Text style={[styles.thCell, { width: 100, textAlign: "center" }]}>Thao tác</Text>
-            </View>
-            <FlatList
-              data={filteredVouchers}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => {
-                const st = getRealStatus(item);
-                return (
-                  <View style={styles.tableRow}>
-                    <TouchableOpacity style={{ flexDirection: "row", width: 900, alignItems: "center" }} onPress={() => openModal(item)} activeOpacity={0.7}>
-                      <Text style={[styles.tdCell, { width: 120, fontWeight: "800", color: item.color }]}>{item.code}</Text>
-                      <View style={{ width: 200, justifyContent: "center", paddingRight: 10 }}>
-                        <Text style={{ fontSize: 13, fontWeight: "700", color: "#1f2a58" }} numberOfLines={1}>{item.title}</Text>
-                        <Text style={{ fontSize: 11, color: "#7a8cc2" }}>Giảm {item.type === "percent" ? `${item.discountValue}%` : formatVND(item.discountValue)}</Text>
-                      </View>
-                      <Text style={[styles.tdCell, { width: 140 }]}>{getGroupLabel(item.group)}</Text>
-                      <View style={{ width: 120, justifyContent: "center" }}>
-                        <Text style={{ fontSize: 13, fontWeight: "700", color: "#1f2a58" }}>{item.usedCount} <Text style={{ color: "#94a8d8", fontWeight: "400" }}>/ {item.usageLimit}</Text></Text>
-                      </View>
-                      <View style={{ width: 220, justifyContent: "center" }}>
-                        <Text style={{ fontSize: 11, color: "#64748b" }}>{item.startDate}{"\n"}- {item.endDate}</Text>
-                      </View>
-                      <View style={{ width: 100, justifyContent: "center", alignItems: "flex-start" }}>
-                        <View style={[styles.statusBadge, { backgroundColor: st.bg, margin: 0 }]}><Text style={[styles.statusTxt, { color: st.color }]}>{st.label}</Text></View>
-                      </View>
-                    </TouchableOpacity>
-                    
-                    <View style={{ width: 100, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 12 }}>
-                      <TouchableOpacity onPress={() => promptDistribute(item)}><Ionicons name="paper-plane" size={18} color="#4f7cff" /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => promptDelete(item)}><Ionicons name="trash" size={18} color="#ef4444" /></TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              }}
+      <ScrollView contentContainerStyle={s.list}>
+        {filtered.length === 0 && (
+          <View style={s.emptyWrap}>
+            <MaterialCommunityIcons
+              name="ticket-percent-outline"
+              size={56}
+              color="#c0cbe8"
             />
+            <Text style={s.emptyText}>Không tìm thấy voucher nào</Text>
+            <TouchableOpacity style={s.emptyBtn} onPress={openAdd}>
+              <Text style={s.emptyBtnText}>+ Tạo voucher mới</Text>
+            </TouchableOpacity>
           </View>
-        </ScrollView>
-      )}
+        )}
+        {filtered.map((voucher) => {
+          const st = STATUS_MAP[voucher.status];
+          const isOpen = expandedId === voucher.id;
+          const usedPct = Math.min(
+            Math.round((voucher.used / voucher.limit) * 100),
+            100,
+          );
+          return (
+            <TouchableOpacity
+              key={voucher.id}
+              style={s.card}
+              activeOpacity={0.88}
+              onPress={() => setExpandedId(isOpen ? null : voucher.id)}
+            >
+              <View style={[s.cardAccent, { backgroundColor: voucher.color }]}>
+                <MaterialCommunityIcons
+                  name="ticket-percent-outline"
+                  size={20}
+                  color="#fff"
+                />
+                <Text style={s.discountTxt}>
+                  {voucher.type === "percent"
+                    ? `${voucher.discount}%`
+                    : `${Number(voucher.discount).toLocaleString("vi-VN")}đ`}
+                </Text>
+                <Text style={s.typeTxt}>
+                  {voucher.type === "percent" ? "%" : "Cố định"}
+                </Text>
+              </View>
+              <View style={s.cardBody}>
+                <View style={s.cardTopRow}>
+                  <Text style={s.codeText}>{voucher.code}</Text>
+                  <View style={[s.badge, { backgroundColor: st.bg }]}>
+                    <Text style={[s.badgeText, { color: st.color }]}>
+                      {st.label}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={s.descText} numberOfLines={2}>
+                  {voucher.description}
+                </Text>
+                <View style={s.progressWrap}>
+                  <View style={s.progressBg}>
+                    <View
+                      style={[
+                        s.progressFill,
+                        {
+                          width: `${usedPct}%`,
+                          backgroundColor: voucher.color,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={s.progressTxt}>
+                    {voucher.used}/{voucher.limit}
+                  </Text>
+                </View>
+                <View style={s.metaRow}>
+                  <Ionicons name="calendar-outline" size={11} color="#8ea0d6" />
+                  <Text style={s.metaTxt}>HSD: {voucher.expiry}</Text>
+                  <Text style={s.dot}>·</Text>
+                  <Ionicons name="pricetag-outline" size={11} color="#8ea0d6" />
+                  <Text style={s.metaTxt}>
+                    ≥{Number(voucher.minOrder).toLocaleString("vi-VN")}đ
+                  </Text>
+                </View>
+                {isOpen && (
+                  <View style={s.expandSection}>
+                    <Text style={s.detailTxt}>
+                      Giảm tối đa:{" "}
+                      <Text style={{ color: "#1f2a58", fontWeight: "700" }}>
+                        {Number(voucher.maxDiscount).toLocaleString("vi-VN")}đ
+                      </Text>
+                    </Text>
+                    <View style={s.actionRow}>
+                      <TouchableOpacity
+                        style={s.btnEdit}
+                        onPress={() => {
+                          setExpandedId(null);
+                          openEdit(voucher);
+                        }}
+                      >
+                        <Ionicons
+                          name="create-outline"
+                          size={14}
+                          color="#4f7cff"
+                        />
+                        <Text style={s.btnEditTxt}>Sửa</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={s.btnDel}
+                        onPress={() => handleDelete(voucher)}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={14}
+                          color="#dc2626"
+                        />
+                        <Text style={s.btnDelTxt}>Xóa</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={s.btnCopy}
+                        onPress={() => {
+                          openAdd();
+                          setForm((p) => ({
+                            ...p,
+                            code: voucher.code + "_COPY",
+                            description: voucher.description,
+                            type: voucher.type,
+                            discount: voucher.discount,
+                            minOrder: voucher.minOrder,
+                            maxDiscount: voucher.maxDiscount,
+                            limit: voucher.limit,
+                            color: voucher.color,
+                          }));
+                        }}
+                      >
+                        <Ionicons
+                          name="copy-outline"
+                          size={14}
+                          color="#d97706"
+                        />
+                        <Text style={s.btnCopyTxt}>Sao chép</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+        <View style={{ height: 30 }} />
+      </ScrollView>
 
-      {/* MODAL THÊM / SỬA VOUCHER */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{(editingVoucher?.id || "").startsWith("v-") && !vouchers.find(v=>v.id===editingVoucher?.id) ? "Tạo Khuyến mãi Mới" : "Cập nhật Khuyến mãi"}</Text>
-              <TouchableOpacity onPress={() => { setModalVisible(false); setShowPicker(false); }} style={styles.closeBtn}>
-                <Ionicons name="close" size={24} color="#1f2a58" />
+      {/* ── MODAL FORM ── */}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={s.overlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <TouchableOpacity
+            style={s.backdrop}
+            activeOpacity={1}
+            onPress={() => setModalVisible(false)}
+          />
+          <View style={s.sheet}>
+            <View style={s.handle} />
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>
+                {editing ? "Chỉnh sửa voucher" : "Tạo voucher mới"}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setModalVisible(false)}
+                style={s.closeBtn}
+              >
+                <Ionicons name="close" size={20} color="#7a8cc2" />
               </TouchableOpacity>
             </View>
-            
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-              
-              {/* Box 1: Thông tin chung */}
-              <View style={styles.formGroup}>
-                <Text style={styles.groupTitle}>1. Thông tin chung</Text>
-                <Text style={styles.inputLabel}>Mã Voucher <Text style={{ color: "#ef4444" }}>*</Text></Text>
-                <TextInput style={styles.input} value={editingVoucher?.code || ""} onChangeText={(t) => setEditingVoucher(prev => ({...prev, code: t.toUpperCase()}))} placeholder="VD: SUMMER2026" />
-
-                <Text style={styles.inputLabel}>Tiêu đề hiển thị <Text style={{ color: "#ef4444" }}>*</Text></Text>
-                <TextInput style={styles.input} value={editingVoucher?.title || ""} onChangeText={(t) => setEditingVoucher(prev => ({...prev, title: t}))} placeholder="VD: Giảm 10% Tour Biển" />
-
-                <Text style={styles.inputLabel}>Mô tả chi tiết</Text>
-                <TextInput style={[styles.input, { height: 80, textAlignVertical: "top" }]} multiline value={editingVoucher?.description || ""} onChangeText={(t) => setEditingVoucher(prev => ({...prev, description: t}))} placeholder="Điều kiện, lưu ý..." />
-              </View>
-
-              {/* Box 2: Thiết lập Giảm giá */}
-              <View style={styles.formGroup}>
-                <Text style={styles.groupTitle}>2. Thiết lập Khuyến mãi</Text>
-                <Text style={styles.inputLabel}>Loại giảm giá</Text>
-                <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-                  <TouchableOpacity style={[styles.typeBtn, editingVoucher?.type === "percent" && styles.typeBtnActive]} onPress={() => setEditingVoucher(prev => ({...prev, type: "percent"}))}>
-                    <Text style={[styles.typeTxt, editingVoucher?.type === "percent" && styles.typeTxtActive]}>Giảm theo %</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.typeBtn, editingVoucher?.type === "fixed" && styles.typeBtnActive]} onPress={() => setEditingVoucher(prev => ({...prev, type: "fixed"}))}>
-                    <Text style={[styles.typeTxt, editingVoucher?.type === "fixed" && styles.typeTxtActive]}>Giảm số tiền</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.rowGrid}>
-                  <View style={styles.col}>
-                    <Text style={styles.inputLabel}>Mức giảm <Text style={{ color: "#ef4444" }}>*</Text></Text>
-                    <TextInput 
-                      style={[styles.input, { marginBottom: 4 }]} 
-                      keyboardType="numeric" 
-                      value={editingVoucher?.discountValue ? editingVoucher.discountValue.toLocaleString("vi-VN") : ""} 
-                      onChangeText={(t) => handleNumericInput("discountValue", t)} 
-                    />
-                    {editingVoucher?.type === "fixed" ? (
-                      <Text style={styles.priceReadingTxt}>{docTien(editingVoucher?.discountValue || 0)}</Text>
-                    ) : (
-                      <Text style={styles.priceReadingTxt}>Phần trăm (%)</Text>
-                    )}
-                  </View>
-                  
-                  {editingVoucher?.type === "percent" && (
-                    <View style={styles.col}>
-                      <Text style={styles.inputLabel}>Giảm Tối đa (VNĐ)</Text>
-                      <TextInput 
-                        style={[styles.input, { marginBottom: 4 }]} 
-                        keyboardType="numeric" 
-                        value={editingVoucher?.maxDiscount ? editingVoucher.maxDiscount.toLocaleString("vi-VN") : ""} 
-                        onChangeText={(t) => handleNumericInput("maxDiscount", t)} 
-                      />
-                      <Text style={styles.priceReadingTxt}>{docTien(editingVoucher?.maxDiscount || 0)}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {/* Box 3: Điều kiện & Thời gian */}
-              <View style={styles.formGroup}>
-                <Text style={styles.groupTitle}>3. Điều kiện & Thời gian</Text>
-                
-                <Text style={styles.inputLabel}>Giá trị Đơn hàng Tối thiểu (VNĐ)</Text>
-                <TextInput 
-                  style={[styles.input, { marginBottom: 4 }]} 
-                  keyboardType="numeric" 
-                  value={editingVoucher?.minOrderValue ? editingVoucher.minOrderValue.toLocaleString("vi-VN") : ""} 
-                  onChangeText={(t) => handleNumericInput("minOrderValue", t)} 
-                />
-                <Text style={styles.priceReadingTxt}>{docTien(editingVoucher?.minOrderValue || 0)}</Text>
-
-                <View style={styles.rowGrid}>
-                  <View style={styles.col}>
-                    <Text style={styles.inputLabel}>Tổng Lượt dùng</Text>
-                    <TextInput style={styles.input} keyboardType="numeric" value={(editingVoucher?.usageLimit || 0).toString()} onChangeText={(t) => handleNumericInput("usageLimit", t)} />
-                  </View>
-                  <View style={styles.col}>
-                    <Text style={styles.inputLabel}>Đã sử dụng</Text>
-                    <TextInput style={[styles.input, { backgroundColor: "#f1f5f9", color: "#64748b" }]} keyboardType="numeric" value={(editingVoucher?.usedCount || 0).toString()} editable={false} />
-                  </View>
-                </View>
-
-                {/* HỖ TRỢ WEB FALLBACK VÀ LỊCH TRÊN APP */}
-                <View style={[styles.rowGrid, { marginTop: 12 }]}>
-                  <View style={styles.col}>
-                    <Text style={styles.inputLabel}>Bắt đầu (Giờ & Ngày)</Text>
-                    {Platform.OS === "web" ? (
-                      <TextInput style={styles.input} value={editingVoucher?.startDate || ""} onChangeText={(t) => setEditingVoucher(prev => ({...prev, startDate: t}))} placeholder="VD: 01/06/2026 08:00" />
-                    ) : (
-                      <TouchableOpacity style={styles.datePickerBtn} onPress={() => handleOpenPicker("startDate")} activeOpacity={0.7}>
-                        <Text style={[styles.datePickerTxt, !editingVoucher?.startDate && { color: "#94a8d8", fontWeight: "400" }]}>
-                          {editingVoucher?.startDate || "Chọn thời gian"}
-                        </Text>
-                        <Ionicons name="calendar" size={18} color="#4f7cff" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <View style={styles.col}>
-                    <Text style={styles.inputLabel}>Hết hạn (Giờ & Ngày)</Text>
-                    {Platform.OS === "web" ? (
-                      <TextInput style={styles.input} value={editingVoucher?.endDate || ""} onChangeText={(t) => setEditingVoucher(prev => ({...prev, endDate: t}))} placeholder="VD: 30/08/2026 23:59" />
-                    ) : (
-                      <TouchableOpacity style={styles.datePickerBtn} onPress={() => handleOpenPicker("endDate")} activeOpacity={0.7}>
-                        <Text style={[styles.datePickerTxt, !editingVoucher?.endDate && { color: "#94a8d8", fontWeight: "400" }]}>
-                          {editingVoucher?.endDate || "Chọn thời gian"}
-                        </Text>
-                        <Ionicons name="calendar" size={18} color="#ef4444" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              </View>
-
-              <TouchableOpacity style={styles.saveBtn} onPress={saveVoucher}>
-                <Ionicons name="save" size={20} color="#fff" />
-                <Text style={styles.saveBtnTxt}>Lưu Voucher</Text>
-              </TouchableOpacity>
-            </ScrollView>
-
-            {/* RENDER LỊCH VÀ ĐỒNG HỒ TRỰC TIẾP TRONG MODAL ĐỂ FIX Z-INDEX IOS */}
-            {showPicker && Platform.OS === "android" && (
-              <DateTimePicker
-                value={pickerDate}
-                mode={pickerMode}
-                is24Hour={true}
-                display="default"
-                onChange={onPickerChange}
+            <ScrollView
+              contentContainerStyle={s.modalBody}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <FL t="Mã voucher *" />
+              <TextInput
+                style={s.input}
+                value={form.code}
+                onChangeText={(v) => f("code", v.toUpperCase())}
+                placeholder="VD: SUMMER35"
+                placeholderTextColor="#b0bdd8"
+                autoCapitalize="characters"
               />
-            )}
+              <FL t="Mô tả" />
+              <TextInput
+                style={s.input}
+                value={form.description}
+                onChangeText={(v) => f("description", v)}
+                placeholder="VD: Ưu đãi mùa hè giảm 35%"
+                placeholderTextColor="#b0bdd8"
+              />
 
-            {showPicker && Platform.OS === "ios" && (
-              <View style={styles.iosPickerOverlay}>
-                <View style={styles.iosPickerContainer}>
-                  <View style={styles.iosPickerHeader}>
-                    <TouchableOpacity onPress={() => setShowPicker(false)}>
-                      <Text style={styles.iosPickerCancel}>Hủy</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={confirmIOSPicker}>
-                      <Text style={styles.iosPickerConfirm}>Xong</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <DateTimePicker
-                    value={pickerDate}
-                    mode={pickerMode}
-                    display="spinner"
-                    locale="vi-VN"
-                    onChange={onPickerChange}
-                    style={{ height: 200 }}
+              <FL t="Loại giảm giá" />
+              <View style={s.optionRow}>
+                {(["percent", "fixed"] as VoucherType[]).map((t) => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[s.typeOpt, form.type === t && s.typeOptActive]}
+                    onPress={() => f("type", t)}
+                  >
+                    <Text
+                      style={[
+                        s.typeOptTxt,
+                        form.type === t && s.typeOptTxtActive,
+                      ]}
+                    >
+                      {t === "percent" ? "% Phần trăm" : "Cố định (đ)"}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <FL
+                t={
+                  form.type === "percent"
+                    ? "Mức giảm (%) *"
+                    : "Mức giảm (VNĐ) *"
+                }
+              />
+              <TextInput
+                style={s.input}
+                value={form.discount}
+                onChangeText={(v) => f("discount", v)}
+                placeholder={form.type === "percent" ? "VD: 35" : "VD: 200000"}
+                keyboardType="numeric"
+                placeholderTextColor="#b0bdd8"
+              />
+
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <FL t="Đơn tối thiểu (đ)" />
+                  <TextInput
+                    style={s.input}
+                    value={form.minOrder}
+                    onChangeText={(v) => f("minOrder", v)}
+                    placeholder="VD: 2000000"
+                    keyboardType="numeric"
+                    placeholderTextColor="#b0bdd8"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <FL t="Giảm tối đa (đ)" />
+                  <TextInput
+                    style={s.input}
+                    value={form.maxDiscount}
+                    onChangeText={(v) => f("maxDiscount", v)}
+                    placeholder="VD: 500000"
+                    keyboardType="numeric"
+                    placeholderTextColor="#b0bdd8"
                   />
                 </View>
               </View>
-            )}
 
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
-
-      {/* CUSTOM POPUP CONFIRM */}
-      <Modal visible={confirmPopup.visible} transparent animationType="fade">
-        <View style={styles.confirmOverlay}>
-          <View style={styles.confirmBox}>
-            <View style={[
-              styles.confirmIconWrap, 
-              confirmPopup.type === "distribute" && { backgroundColor: "#eaf0ff" },
-              confirmPopup.type === "success" && { backgroundColor: "#d1fae5" },
-              confirmPopup.type === "error" || confirmPopup.type === "delete" ? { backgroundColor: "#fee2e2" } : {}
-            ]}>
-              <Ionicons 
-                name={confirmPopup.type === "distribute" ? "paper-plane" : confirmPopup.type === "success" ? "checkmark-circle" : confirmPopup.type === "delete" ? "trash" : "warning"} 
-                size={32} 
-                color={confirmPopup.type === "distribute" ? "#4f7cff" : confirmPopup.type === "success" ? "#10b981" : "#ef4444"} 
-              />
-            </View>
-            <Text style={styles.confirmTitle}>{confirmPopup.title}</Text>
-            <Text style={styles.confirmMessage}>{confirmPopup.message}</Text>
-
-            {confirmPopup.type === "success" || confirmPopup.type === "error" ? (
-              <TouchableOpacity style={styles.confirmSingleBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
-                <Text style={styles.confirmSingleBtnTxt}>Đóng</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.confirmActionRow}>
-                <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
-                  <Text style={styles.confirmCancelBtnTxt}>Hủy bỏ</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.confirmSubmitBtn, { backgroundColor: confirmPopup.type === "delete" ? "#ef4444" : "#4f7cff" }]} onPress={executeAction}>
-                  <Text style={styles.confirmSubmitBtnTxt}>{confirmPopup.type === "delete" ? "Xóa" : "Thực hiện"}</Text>
-                </TouchableOpacity>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <FL t="Tổng lượt" />
+                  <TextInput
+                    style={s.input}
+                    value={String(form.limit)}
+                    onChangeText={(v) => f("limit", Number(v) || 0)}
+                    keyboardType="numeric"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <FL t="Đã dùng" />
+                  <TextInput
+                    style={s.input}
+                    value={String(form.used)}
+                    onChangeText={(v) => f("used", Number(v) || 0)}
+                    keyboardType="numeric"
+                  />
+                </View>
               </View>
-            )}
-          </View>
-        </View>
-      </Modal>
 
-      <AdminTabBar role="admin" activeRoute="admin-voucher-management" />
+              <FL t="Ngày hết hạn" />
+              <TextInput
+                style={s.input}
+                value={form.expiry}
+                onChangeText={(v) => f("expiry", v)}
+                placeholder="VD: 31/12/2025"
+                placeholderTextColor="#b0bdd8"
+              />
+
+              <FL t="Trạng thái" />
+              <View style={s.optionRow}>
+                {STATUS_OPTIONS.map((st) => {
+                  const info = STATUS_MAP[st];
+                  return (
+                    <TouchableOpacity
+                      key={st}
+                      style={[
+                        s.statusOpt,
+                        form.status === st && {
+                          backgroundColor: info.bg,
+                          borderColor: info.color,
+                        },
+                      ]}
+                      onPress={() => f("status", st)}
+                    >
+                      <Text
+                        style={[
+                          s.statusOptTxt,
+                          form.status === st && { color: info.color },
+                        ]}
+                      >
+                        {info.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <FL t="Màu accent" />
+              <View style={s.colorRow}>
+                {ACCENT_COLORS.map((c) => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[
+                      s.colorDot,
+                      { backgroundColor: c },
+                      form.color === c && s.colorDotActive,
+                    ]}
+                    onPress={() => f("color", c)}
+                  >
+                    {form.color === c && (
+                      <Ionicons name="checkmark" size={14} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={[s.saveBtn, saving && { opacity: 0.6 }]}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                <Ionicons
+                  name={
+                    editing ? "checkmark-circle-outline" : "add-circle-outline"
+                  }
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={s.saveBtnTxt}>
+                  {saving
+                    ? "Đang lưu..."
+                    : editing
+                      ? "Lưu thay đổi"
+                      : "Tạo voucher"}
+                </Text>
+              </TouchableOpacity>
+              <View style={{ height: 24 }} />
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const FL = ({ t }: { t: string }) => <Text style={s.formLabel}>{t}</Text>;
+
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f7ff" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
-  backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
-  addBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#4f7cff", alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  iconTopBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingBottom: 12,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e4ebff",
+  },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#eaf0ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-<<<<<<< Updated upstream
-  
-  searchRow: { paddingHorizontal: 16, paddingBottom: 10 },
-  searchBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: "#e4ebff" },
-  searchInput: { flex: 1, marginLeft: 10, fontSize: 15, color: "#1f2a58" },
-  filtersWrapper: { flexShrink: 0, paddingBottom: 10 },
-  filterScroll: { paddingHorizontal: 16, gap: 10 },
-  filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" },
-  filterChipActive: { backgroundColor: "#1f2a58", borderColor: "#1f2a58" },
-  filterTxt: { color: "#7a8cc2", fontWeight: "600", fontSize: 13 },
-=======
   statsRow: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -714,80 +787,227 @@ const styles = StyleSheet.create({
   },
   filterActive: { backgroundColor: "#4f7cff", borderColor: "#4f7cff", height: 34 },
   filterTxt: { color: "#6c7fb7", fontSize: 12, fontWeight: "600" },
->>>>>>> Stashed changes
   filterTxtActive: { color: "#fff" },
-
-  listContent: { padding: 16, paddingBottom: 100 },
-  card: { backgroundColor: "#fff", borderRadius: 16, marginBottom: 16, flexDirection: "row", elevation: 2, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, borderWidth: 1, borderColor: "#e4ebff", overflow: "hidden" },
-  cardInfo: { flex: 1, padding: 16 },
-  codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  codeTxt: { fontSize: 18, fontWeight: "900" },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginVertical: 4 },
-  statusTxt: { fontSize: 11, fontWeight: "800" },
-  titleTxt: { fontSize: 15, color: "#1f2a58", fontWeight: "800", marginBottom: 4 },
-  descTxt: { fontSize: 13, color: "#64748b", marginBottom: 12, lineHeight: 18 },
-  metaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 12 },
-  metaItem: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#f8fafc", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  metaTxt: { fontSize: 11, color: "#1f2a58", fontWeight: "600" },
-  
-  progressContainer: { marginTop: 4 },
-  progressRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  progressLabel: { fontSize: 11, color: "#7a8cc2", fontWeight: "600" },
-  progressBarBg: { height: 6, backgroundColor: "#e4ebff", borderRadius: 3, overflow: "hidden" },
-  progressBarFill: { height: "100%", borderRadius: 3 },
-
-  cardActionsCol: { borderLeftWidth: 1, borderLeftColor: "#f0f4ff", backgroundColor: "#fafbff", padding: 10, justifyContent: "center" },
-  actionSideBtn: { width: 40, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-
-  tableWrapper: { marginHorizontal: 16, marginBottom: 100, backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", overflow: "hidden" },
-  tableHeader: { flexDirection: "row", backgroundColor: "#f8fafc", borderBottomWidth: 1, borderBottomColor: "#e2e8f0", paddingVertical: 12, paddingHorizontal: 16 },
-  thCell: { color: "#64748b", fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
-  tableRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#f0f4ff", paddingVertical: 12, paddingHorizontal: 16, alignItems: "center" },
-  tdCell: { color: "#1f2a58", fontSize: 13 },
-  
-  modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "flex-end" },
-  modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "92%" },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  closeBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  modalBody: { padding: 20 },
-  
-  formGroup: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 16, marginBottom: 20 },
-  groupTitle: { fontSize: 15, fontWeight: "800", color: "#1f2a58", marginBottom: 16, borderBottomWidth: 1, borderBottomColor: "#f0f4ff", paddingBottom: 8 },
-
-  inputLabel: { fontSize: 13, fontWeight: "700", color: "#1f2a58", marginBottom: 8, marginTop: 4 },
-  input: { backgroundColor: "#f8fafc", borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 16, paddingVertical: 14, color: "#1f2a58", fontSize: 14 },
-  priceReadingTxt: { fontSize: 12, color: "#10b981", fontStyle: "italic", marginLeft: 4, marginBottom: 12, fontWeight: "600", marginTop: 4 },
-  
-  datePickerBtn: { backgroundColor: "#f8fafc", borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  datePickerTxt: { fontSize: 14, color: "#1f2a58", fontWeight: "600" },
-  
-  iosPickerOverlay: { position: "absolute", bottom: 0, left: 0, right: 0, top: 0, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)", zIndex: 9999 },
-  iosPickerContainer: { backgroundColor: "#fff", paddingBottom: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  iosPickerHeader: { flexDirection: "row", justifyContent: "space-between", padding: 20, borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
-  iosPickerCancel: { color: "#ef4444", fontSize: 16, fontWeight: "600" },
-  iosPickerConfirm: { color: "#4f7cff", fontSize: 16, fontWeight: "800" },
-
-  rowGrid: { flexDirection: "row", gap: 12 },
-  col: { flex: 1 },
-  typeBtn: { backgroundColor: "#f8fafc", borderRadius: 10, borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, paddingHorizontal: 14, alignItems: "center" },
-  typeBtnActive: { backgroundColor: "#eaf0ff", borderColor: "#4f7cff" },
-  typeTxt: { fontSize: 13, fontWeight: "600", color: "#64748b" },
-  typeTxtActive: { color: "#4f7cff", fontWeight: "700" },
-  
-  saveBtn: { backgroundColor: "#4f7cff", borderRadius: 14, height: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, marginBottom: 30, elevation: 4, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
+  resultText: {
+    color: "#7a8cc2",
+    fontSize: 12,
+    paddingHorizontal: 14,
+    marginBottom: 6,
+  },
+  list: { paddingHorizontal: 14 },
+  emptyWrap: { alignItems: "center", paddingTop: 60, gap: 12 },
+  emptyText: { color: "#7a8cc2", fontSize: 15, fontWeight: "600" },
+  emptyBtn: {
+    marginTop: 8,
+    backgroundColor: "#4f7cff",
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  emptyBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  card: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e4ebff",
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  cardAccent: {
+    width: 80,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    gap: 4,
+  },
+  discountTxt: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  typeTxt: { color: "rgba(255,255,255,0.75)", fontSize: 9, fontWeight: "600" },
+  cardBody: { flex: 1, padding: 12 },
+  cardTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 6,
+  },
+  codeText: {
+    color: "#1f2a58",
+    fontWeight: "800",
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeText: { fontSize: 11, fontWeight: "700" },
+  descText: { color: "#5f73a9", fontSize: 12, marginTop: 4, lineHeight: 17 },
+  progressWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  progressBg: {
+    flex: 1,
+    height: 5,
+    backgroundColor: "#eaf0ff",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressFill: { height: "100%", borderRadius: 4 },
+  progressTxt: { color: "#7a8cc2", fontSize: 11, fontWeight: "600" },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  metaTxt: { color: "#7a8cc2", fontSize: 11 },
+  dot: { color: "#c0cbe8" },
+  expandSection: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f4ff",
+  },
+  detailTxt: { color: "#7a8cc2", fontSize: 12, marginBottom: 10 },
+  actionRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  btnEdit: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#eaf0ff",
+  },
+  btnEditTxt: { fontSize: 12, fontWeight: "700", color: "#4f7cff" },
+  btnDel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#fee2e2",
+  },
+  btnDelTxt: { fontSize: 12, fontWeight: "700", color: "#dc2626" },
+  btnCopy: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#fef9c3",
+  },
+  btnCopyTxt: { fontSize: 12, fontWeight: "700", color: "#d97706" },
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(10,18,50,0.45)",
+  },
+  sheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: "92%",
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: "#e4ebff",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: 12,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f4ff",
+  },
+  modalTitle: { fontSize: 17, fontWeight: "800", color: "#1f2a58" },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#f3f7ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBody: { paddingHorizontal: 20, paddingTop: 8 },
+  formLabel: {
+    color: "#1f2a58",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 6,
+    marginTop: 14,
+  },
+  input: {
+    backgroundColor: "#f3f7ff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e4ebff",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    color: "#1f2a58",
+    fontSize: 14,
+  },
+  optionRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+    marginBottom: 4,
+  },
+  typeOpt: {
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#dfe7ff",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  typeOptActive: { backgroundColor: "#eaf0ff", borderColor: "#4f7cff" },
+  typeOptTxt: { color: "#7a8cc2", fontSize: 13, fontWeight: "700" },
+  typeOptTxtActive: { color: "#4f7cff" },
+  statusOpt: {
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#dfe7ff",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  statusOptTxt: { color: "#7a8cc2", fontSize: 13, fontWeight: "700" },
+  colorRow: {
+    flexDirection: "row",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 4,
+  },
+  colorDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  colorDotActive: {
+    borderWidth: 3,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  saveBtn: {
+    marginTop: 20,
+    backgroundColor: "#4f7cff",
+    borderRadius: 14,
+    paddingVertical: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
   saveBtnTxt: { color: "#fff", fontSize: 16, fontWeight: "800" },
-
-  confirmOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
-  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10 },
-  confirmIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  confirmTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58", marginBottom: 8, textAlign: "center" },
-  confirmMessage: { fontSize: 14, color: "#7a8cc2", textAlign: "center", lineHeight: 22, marginBottom: 24 },
-  confirmActionRow: { flexDirection: "row", gap: 12, width: "100%" },
-  confirmCancelBtn: { flex: 1, height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
-  confirmCancelBtnTxt: { color: "#7a8cc2", fontSize: 15, fontWeight: "700" },
-  confirmSubmitBtn: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  confirmSubmitBtnTxt: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  confirmSingleBtn: { width: "100%", height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  confirmSingleBtnTxt: { color: "#1f2a58", fontSize: 15, fontWeight: "800" },
 });

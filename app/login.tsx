@@ -1,8 +1,8 @@
 /**
  * app/login.tsx
  * Trang Đăng nhập & Quên mật khẩu - Đã thay thế Alert bằng Custom Modal Popup
+ * ĐÃ FIX LỖI: Nhấn giữ Logo mở Dev Mode (Sử dụng pointerEvents="box-only")
  */
-import { loginAccount } from "@/constants/app-accounts";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter } from "expo-router";
@@ -18,15 +18,10 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-<<<<<<< Updated upstream
   TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-=======
-  View,
-} from "react-native";
->>>>>>> Stashed changes
 import LogoLocalMate from "../components/LogoLocalMate";
 
 const QUICK = [
@@ -52,7 +47,6 @@ export default function LoginScreen() {
   const [otp, setOtp] = useState("");
   const [newPwd, setNewPwd] = useState("");
 
-  // Custom Popup State thay cho Alert
   const [alertPopup, setAlertPopup] = useState<{
     visible: boolean;
     type: "success" | "error" | "info";
@@ -75,16 +69,38 @@ export default function LoginScreen() {
       showAlert("error", "Lỗi nhập liệu", "Vui lòng nhập địa chỉ email và mật khẩu.");
       return;
     }
-    setLoading(true);
-    const res = await loginAccount(email.trim().toLowerCase(), password);
-    setLoading(false);
     
-    if (res.ok) {
-      if (res.user?.activeRole === "admin") router.replace("/admin-home");
-      else if (res.user?.activeRole === "staff") router.replace("/staff-home" as any);
-      else router.replace("/");
-    } else {
-      showAlert("error", "Đăng nhập thất bại", res.error || "Sai thông tin đăng nhập.");
+    setLoading(true);
+    
+    try {
+      let role = "guest"; 
+      const emailLower = email.trim().toLowerCase();
+
+      if (emailLower.includes("admin")) {
+        role = "admin";
+      } else if (emailLower.includes("guide")) {
+        role = "guide";
+      } else if (emailLower.includes("staff")) {
+        role = "staff";
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 800));
+      await AsyncStorage.setItem("@current_user_role", role);
+
+      if (role === "admin") {
+        router.replace("/admin-home");
+      } else if (role === "guide") {
+        router.replace("/guide-home");
+      } else if (role === "staff") {
+        router.replace("/staff-home" as any);
+      } else {
+        router.replace("/");
+      }
+
+    } catch (error) {
+      showAlert("error", "Đăng nhập thất bại", "Đã có lỗi xảy ra trong quá trình đăng nhập.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -152,7 +168,6 @@ export default function LoginScreen() {
   };
 
   return (
-<<<<<<< Updated upstream
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#f3f7ff" />
       <Stack.Screen options={{ headerShown: false }} />
@@ -160,30 +175,18 @@ export default function LoginScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           
-          <TouchableWithoutFeedback onLongPress={() => setDevMode(!devMode)} delayLongPress={1500}>
-            <View style={styles.logoWrapper}>
+          {/* ĐÃ FIX: Chuyển TouchableWithoutFeedback thành TouchableOpacity + pointerEvents */}
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onLongPress={() => setDevMode(!devMode)} 
+            delayLongPress={1000}
+          >
+            <View style={styles.logoWrapper} pointerEvents="box-only">
               <View style={styles.logoScaler}>
                 <LogoLocalMate />
               </View>
             </View>
-          </TouchableWithoutFeedback>
-=======
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={st.container}
-    >
-      <ScrollView
-        contentContainerStyle={st.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={{ marginTop: -40, zIndex: 2 }}>
-          <LogoLocalMate />
-        </View>
-        <View style={st.header}>
-          <Text style={st.title}>Đăng nhập</Text>
-          <Text style={st.sub}>Điền thông tin tài khoản của bạn</Text>
-        </View>
->>>>>>> Stashed changes
+          </TouchableOpacity>
 
           <View style={styles.headerText}>
             <Text style={styles.title}>Chào mừng trở lại!</Text>
@@ -219,7 +222,7 @@ export default function LoginScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          <TouchableOpacity style={styles.vneidBtn} onPress={() => router.push("/vneid-login")}>
+          <TouchableOpacity style={styles.vneidBtn} onPress={() => router.push("/vneid-login" as any)}>
             <View style={styles.vneidIconWrap}>
               <Ionicons name="shield-checkmark" size={18} color="#fff" />
             </View>
@@ -241,7 +244,7 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerTxt}>Chưa có tài khoản? </Text>
-            <TouchableOpacity onPress={() => router.push("/register")}>
+            <TouchableOpacity onPress={() => router.push("/register" as any)}>
               <Text style={styles.registerLink}>Đăng ký ngay</Text>
             </TouchableOpacity>
           </View>
@@ -296,7 +299,7 @@ export default function LoginScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* CUSTOM POPUP ALERT THAY CHO ALERT.ALERT */}
+      {/* CUSTOM POPUP ALERT */}
       <Modal visible={alertPopup.visible} transparent animationType="fade">
         <View style={styles.alertOverlay}>
           <View style={styles.alertBox}>
@@ -318,7 +321,6 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
         </View>
-<<<<<<< Updated upstream
       </Modal>
     </View>
   );
@@ -385,199 +387,3 @@ const styles = StyleSheet.create({
   alertBtn: { width: "100%", height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
   alertBtnTxt: { color: "#1f2a58", fontSize: 15, fontWeight: "800" },
 });
-=======
-
-        <TouchableOpacity
-          style={st.vneidBtn}
-          onPress={() => router.push("/vneid-login" as any)}
-        >
-          <Ionicons name="shield-checkmark-outline" size={17} color="#1f2a58" />
-          <Text style={st.vneidTxt}>Đăng nhập với VNeID</Text>
-        </TouchableOpacity>
-
-        <View style={st.registerRow}>
-          <Text style={st.registerTxt}>Bạn chưa có tài khoản?</Text>
-          <TouchableOpacity onPress={() => router.push("/register" as any)}>
-            <Text style={st.registerLink}> Đăng ký ngay</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Quick login dưới cùng */}
-        <View style={{ marginTop: 24, alignItems: "center" }}>
-          <Text style={st.quickLabel}>Demo:</Text>
-          <View style={st.quickBtns}>
-            {QUICK.map((q) => (
-              <TouchableOpacity
-                key={q.type}
-                onPress={() => quickLogin(q.email, q.pw)}
-                style={[st.quickIcon, { backgroundColor: q.bg }]}
-              >
-                <MaterialCommunityIcons
-                  name={q.icon}
-                  size={22}
-                  color={q.color}
-                />
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={st.hintCard}>
-            <Text style={st.hintTitle}>
-              Tài khoản demo (nhấn icon để đăng nhập nhanh)
-            </Text>
-            <Text style={st.hintRow}>Guest: guest1@gmail.com</Text>
-            <Text style={st.hintRow}>Admin: admin1@gmail.com</Text>
-            <Text style={st.hintRow}>HDV: guide1@gmail.com</Text>
-            <Text style={st.hintRow}>Staff: staff1@gmail.com</Text>
-            <Text style={st.hintRow}>
-              Dual: dual1@gmail.com - Mật khẩu đều: 123456
-            </Text>
-          </View>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
-}
-
-const st = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: "flex-start",
-    padding: 16,
-    paddingTop: 8,
-    paddingBottom: 18,
-  },
-  quickWrap: {
-    position: "absolute",
-    top: 16,
-    right: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 10,
-  },
-  quickLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#94A3B8",
-    marginRight: 6,
-    letterSpacing: 1,
-  },
-  quickBtns: { flexDirection: "row", gap: 6 },
-  quickIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  header: { marginBottom: 12, marginTop: 0 },
-  brand: {
-    color: "#4f7cff",
-    fontWeight: "800",
-    fontSize: 22,
-    marginTop: 50,
-    marginBottom: 10,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#111827",
-    marginTop: -50,
-    marginBottom: 6,
-  },
-  sub: { fontSize: 15, color: "#6B7280" },
-  formCard: { marginBottom: 14 },
-  labelRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-    paddingHorizontal: 2,
-  },
-  lbl: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#374151",
-    marginBottom: 8,
-    marginLeft: 2,
-  },
-  forgotTxt: { fontSize: 13, color: "#2563EB", fontWeight: "500" },
-  inputWrap: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 14,
-    height: 54,
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    marginBottom: 18,
-  },
-  inputErr: { borderColor: "#EF4444" },
-  icon: { marginRight: 10 },
-  inputTxt: { flex: 1, fontSize: 15, color: "#111827" },
-  eyeBtn: { padding: 4, marginLeft: 6 },
-  errorTxt: {
-    color: "#EF4444",
-    fontSize: 13,
-    fontWeight: "500",
-    textAlign: "center",
-    marginBottom: 14,
-    marginTop: -10,
-  },
-  loginBtn: {
-    backgroundColor: "#2563EB",
-    borderRadius: 14,
-    height: 54,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#2563EB",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  loginBtnTxt: { color: "#FFF", fontSize: 16, fontWeight: "700" },
-  vneidBtn: {
-    height: 50,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "#d0dbff",
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    flexDirection: "row",
-    marginBottom: 14,
-  },
-  vneidTxt: { color: "#1f2a58", fontWeight: "700" },
-  registerRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 22,
-  },
-  registerTxt: { fontSize: 14, color: "#6B7280" },
-  registerLink: { fontSize: 14, color: "#2563EB", fontWeight: "700" },
-  hintCard: {
-    backgroundColor: "#f3f7ff",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#e4ebff",
-    padding: 14,
-    gap: 4,
-  },
-  hintTitle: {
-    color: "#1f2a58",
-    fontWeight: "700",
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  hintRow: { color: "#7a8cc2", fontSize: 12 },
-});
->>>>>>> Stashed changes

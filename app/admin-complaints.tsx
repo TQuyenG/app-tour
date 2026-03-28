@@ -1,47 +1,42 @@
 /**
  * app/admin-complaints.tsx
- * Admin xử lý khiếu nại của khách hàng
- * Fix lỗi nút Back, chuẩn UI Xanh Dương, Custom Popup
+ * Admin xử lý khiếu nại và tranh chấp
  */
-import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-<<<<<<< Updated upstream
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-=======
-  Alert, Image, Modal, ScrollView, StatusBar, StyleSheet,
+  Alert, Modal, ScrollView, StatusBar, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
->>>>>>> Stashed changes
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AdminTabBar } from "@/components/AdminTabBar";
 
-const STORAGE_KEY = "@admin_complaints";
+type ComplaintStatus = "pending" | "investigating" | "resolved" | "rejected";
+type ComplaintType   = "guide" | "tour" | "payment" | "app" | "other";
 
 interface Complaint {
-  id: string; userName: string; tourName: string; date: string;
-  issue: string; status: "pending" | "resolved"; reply?: string;
+  id: string; guestName: string; guestEmail: string;
+  type: ComplaintType; title: string; description: string;
+  bookingId?: string; amount?: number;
+  status: ComplaintStatus; priority: "low" | "medium" | "high";
+  createdAt: string; resolvedAt?: string;
+  adminNote?: string; assignedTo?: string;
+  voucherSent?: boolean;
 }
 
-const SEED: Complaint[] = [
-  { id: "cp-1", userName: "Nguyễn An", tourName: "Đà Lạt 3N2Đ", date: "28/03/2026", issue: "HDV đến trễ 30 phút so với giờ hẹn, thái độ không tốt.", status: "pending" },
-  { id: "cp-2", userName: "Lê Cúc", tourName: "Phú Quốc 4N3Đ", date: "25/03/2026", issue: "Phòng khách sạn không giống như trong hình quảng cáo.", status: "resolved", reply: "Chúng tôi đã làm việc với đối tác khách sạn và hoàn lại 20% chi phí cho quý khách." }
+const SEED_COMPLAINTS: Complaint[] = [
+  { id: "cp001", guestName: "Nguyễn An",       guestEmail: "guest1@gmail.com", type: "guide",   title: "HDV đến trễ 2 tiếng",                  description: "Hướng dẫn viên Trần Minh Khoa đến trễ 2 tiếng so với lịch hẹn 08:00, làm tôi lỡ mất buổi tham quan buổi sáng. Rất thất vọng.",                     bookingId: "BK001001", amount: 8970000,  status: "pending",       priority: "high",   createdAt: "12/04/2026" },
+  { id: "cp002", guestName: "Trần Văn Bình",   guestEmail: "guest2@gmail.com", type: "payment", title: "Bị tính tiền 2 lần",                    description: "Tôi đặt tour Phú Quốc nhưng thẻ bị trừ tiền 2 lần. Mỗi lần 4.690.000đ, tổng bị trừ 9.380.000đ thay vì 4.690.000đ như bình thường.",         bookingId: "BK001002", amount: 4690000,  status: "investigating", priority: "high",   createdAt: "11/04/2026", assignedTo: "Staff CSKH" },
+  { id: "cp003", guestName: "Lê Thị Cúc",      guestEmail: "guest3@gmail.com", type: "tour",    title: "Tour không đúng mô tả",                 description: "Tour Nha Trang quảng cáo có lặn biển ngắm san hô nhưng thực tế không có hoạt động này. Hướng dẫn viên nói do thời tiết nhưng không thông báo trước.",  bookingId: "BK001003", amount: 13160000, status: "resolved",      priority: "medium", createdAt: "10/04/2026", resolvedAt: "11/04/2026", adminNote: "Đã hoàn 30% theo chính sách.", voucherSent: true },
+  { id: "cp004", guestName: "Hoàng Thị Emly",  guestEmail: "guest5@gmail.com", type: "guide",   title: "HDV thiếu chuyên nghiệp",               description: "HDV Đỗ Trúc Ly liên tục dùng điện thoại trong suốt chuyến đi, không giải thích địa điểm tham quan, thái độ không nhiệt tình với khách.",        bookingId: "BK001005", amount: 4600000,  status: "pending",       priority: "medium", createdAt: "09/04/2026" },
+  { id: "cp005", guestName: "Vũ Minh Phong",   guestEmail: "guest6@gmail.com", type: "payment", title: "Chưa nhận được tiền hoàn",              description: "Tôi đã yêu cầu hủy tour và được thông báo hoàn tiền trong 3-5 ngày từ ngày 01/04 nhưng đến nay đã 11 ngày vẫn chưa nhận được.",               bookingId: "BK001006", amount: 21000000, status: "investigating", priority: "high",   createdAt: "08/04/2026", assignedTo: "Admin" },
+  { id: "cp006", guestName: "Đinh Thị Giang",  guestEmail: "guest7@gmail.com", type: "app",     title: "Lỗi ứng dụng không đặt được tour",     description: "Khi tôi cố gắng đặt tour Hạ Long, ứng dụng liên tục báo lỗi 'Không thể kết nối' và không hoàn tất được đặt chỗ. Tôi đã thử 5 lần.",                                          amount: 0,        status: "resolved",      priority: "low",    createdAt: "07/04/2026", resolvedAt: "08/04/2026", adminNote: "Lỗi cache, đã được fix trong version 2.1.1." },
+  { id: "cp007", guestName: "Bùi Văn Hào",     guestEmail: "guest8@gmail.com", type: "tour",    title: "Khách sạn không đúng loại đặt",         description: "Tour Sapa đặt phòng khách sạn 3 sao nhưng thực tế xếp vào nhà nghỉ bình dân. Điều kiện vệ sinh không đảm bảo.",                                bookingId: "BK001004", amount: 7180000,  status: "rejected",      priority: "medium", createdAt: "06/04/2026", resolvedAt: "07/04/2026", adminNote: "Khách sạn 3 sao đã đầy, đối tác đã sắp xếp thay thế tương đương." },
+  { id: "cp008", guestName: "Phạm Quốc Dũng",  guestEmail: "guest4@gmail.com", type: "other",   title: "Không nhận được email xác nhận",        description: "Sau khi đặt và thanh toán thành công, tôi không nhận được email xác nhận booking. Đã kiểm tra spam nhưng không có.",                           bookingId: "BK001007", amount: 3800000,  status: "pending",       priority: "low",    createdAt: "05/04/2026" },
 ];
 
-<<<<<<< Updated upstream
-export default function AdminComplaintsScreen() {
-=======
 const STATUS_META: Record<ComplaintStatus, { label: string; color: string; bg: string }> = {
   pending:       { label: "Chờ xử lý",   color: "#d97706", bg: "#fef9c3" },
   investigating: { label: "Đang điều tra",color: "#2856d6", bg: "#eaf0ff" },
@@ -61,190 +56,181 @@ const PRIORITY_META = {
   low:    { label: "Thấp",   color: "#16a34a", bg: "#dcfce7" },
 };
 
-const TYPE_IMAGES: Record<string, string> = {
-  "cp001": "https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=400&q=80",
-  "cp002": "https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=400&q=80",
-  "cp003": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80",
-  "cp004": "https://images.unsplash.com/photo-1614082242765-7c98ca0f3df3?w=400&q=80",
-  "cp005": "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=400&q=80",
-  "cp006": "https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=400&q=80",
-  "cp007": "https://images.unsplash.com/photo-1506461883276-594a12b11cf3?w=400&q=80",
-  "cp008": "https://images.unsplash.com/photo-1596178060671-7a80dc8059ea?w=400&q=80",
-};
-
 const fmt = (n: number) => `${n.toLocaleString("vi-VN")}đ`;
 const FILTERS: ComplaintStatus[] = ["pending","investigating","resolved","rejected"];
 
 export default function AdminComplaints() {
->>>>>>> Stashed changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [complaints, setComplaints]     = useState<Complaint[]>([]);
+  const [filter, setFilter]             = useState<"all" | ComplaintStatus>("all");
+  const [selected, setSelected]         = useState<Complaint | null>(null);
+  const [showDetail, setShowDetail]     = useState(false);
+  const [adminNote, setAdminNote]       = useState("");
 
-<<<<<<< Updated upstream
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [filter, setFilter] = useState<"all" | "pending" | "resolved">("pending");
-  const [selected, setSelected] = useState<Complaint | null>(null);
-  const [replyText, setReplyText] = useState("");
-
-  const [confirmPopup, setConfirmPopup] = useState<{ visible: boolean; type: "success"|"error"; title: string; message: string; }>({ visible: false, type: "success", title: "", message: "" });
-
-  useFocusEffect(useCallback(() => { loadData(); }, []));
-
-  const loadData = async () => {
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) setComplaints(JSON.parse(raw) || []);
-      else { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED)); setComplaints(SEED); }
-    } catch (e) { setComplaints([]); }
-=======
   useFocusEffect(useCallback(() => {
-    AsyncStorage.getItem("@complaints").then(raw => {
+    AsyncStorage.getItem("@admin_complaints").then(raw => {
       setComplaints(raw ? JSON.parse(raw) : SEED_COMPLAINTS);
-      if (!raw) AsyncStorage.setItem("@complaints", JSON.stringify(SEED_COMPLAINTS)).catch(() => {});
     }).catch(() => setComplaints(SEED_COMPLAINTS));
   }, []));
 
   const persist = async (data: Complaint[]) => {
     setComplaints(data);
-    // Ghi chung 1 key để admin + staff đồng bộ
-    await AsyncStorage.setItem("@complaints", JSON.stringify(data)).catch(() => {});
->>>>>>> Stashed changes
+    await AsyncStorage.setItem("@admin_complaints", JSON.stringify(data)).catch(() => {});
   };
 
-  const handleResolve = async () => {
-    if (!selected) return;
-    if (!replyText.trim()) {
-      setConfirmPopup({ visible: true, type: "error", title: "Lỗi", message: "Vui lòng nhập nội dung phản hồi cho khách hàng." });
-      return;
-    }
-    try {
-      const updated = complaints.map(c => c.id === selected.id ? { ...c, status: "resolved" as const, reply: replyText } : c);
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      setComplaints(updated);
-      setSelected(null);
-      setReplyText("");
-      setConfirmPopup({ visible: true, type: "success", title: "Đã xử lý", message: "Khiếu nại đã được đánh dấu là Đã xử lý." });
-    } catch (error) {}
+  const openDetail = (c: Complaint) => {
+    setSelected(c);
+    setAdminNote(c.adminNote || "");
+    setShowDetail(true);
+  };
+
+  const updateStatus = (id: string, status: ComplaintStatus) => {
+    Alert.alert(
+      "Cập nhật trạng thái",
+      `Chuyển sang "${STATUS_META[status].label}"?`,
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Xác nhận", onPress: async () => {
+            const updated = complaints.map(c =>
+              c.id === id ? { ...c, status, adminNote: adminNote || c.adminNote, resolvedAt: (status === "resolved" || status === "rejected") ? new Date().toLocaleDateString("vi-VN") : undefined } : c
+            );
+            await persist(updated);
+            if (selected?.id === id) setSelected(prev => prev ? { ...prev, status } : null);
+            // Notify guest
+            const nRaw = await AsyncStorage.getItem("@guest_notifications").catch(() => null);
+            const nList = nRaw ? JSON.parse(nRaw) : [];
+            nList.unshift({ id: `n${Date.now()}`, message: `Khiếu nại #${id} của bạn đã được cập nhật: ${STATUS_META[status].label}`, read: false, createdAt: new Date().toISOString() });
+            await AsyncStorage.setItem("@guest_notifications", JSON.stringify(nList)).catch(() => {});
+            Alert.alert("✅ Đã cập nhật");
+          },
+        },
+      ]
+    );
+  };
+
+  const sendVoucher = async (c: Complaint) => {
+    const updated = complaints.map(x => x.id === c.id ? { ...x, voucherSent: true } : x);
+    await persist(updated);
+    if (selected?.id === c.id) setSelected(prev => prev ? { ...prev, voucherSent: true } : null);
+    const nRaw = await AsyncStorage.getItem("@guest_notifications").catch(() => null);
+    const nList = nRaw ? JSON.parse(nRaw) : [];
+    nList.unshift({ id: `n${Date.now()}`, message: `🎁 Admin gửi voucher bồi thường cho khiếu nại #${c.id}. Mã: COMP${Date.now().toString().slice(-6)}`, read: false, createdAt: new Date().toISOString() });
+    await AsyncStorage.setItem("@guest_notifications", JSON.stringify(nList)).catch(() => {});
+    Alert.alert("✅ Đã gửi voucher", "Thông báo đã được gửi đến khách hàng.");
   };
 
   const filtered = complaints.filter(c => filter === "all" || c.status === filter);
+  const pending  = complaints.filter(c => c.status === "pending").length;
+  const highPri  = complaints.filter(c => c.priority === "high" && c.status === "pending").length;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f3f7ff" />
-      <Stack.Screen options={{ headerShown: false }} />
-      
-      <View style={styles.header}>
-        {/* FIX LỖI: Trở về đúng trang admin-home */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace("/admin-home")}>
-          <Ionicons name="chevron-back" size={24} color="#1f2a58" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Hỗ trợ & Khiếu nại</Text>
-        <View style={{ width: 44 }} />
-      </View>
+    <View style={s.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      <View style={styles.filtersWrapper}>
-        <View style={styles.filterRow}>
-          <TouchableOpacity style={[styles.filterBtn, filter === "pending" && styles.filterBtnActive]} onPress={() => setFilter("pending")}>
-            <Text style={[styles.filterTxt, filter === "pending" && styles.filterTxtActive]}>Chờ xử lý</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.filterBtn, filter === "resolved" && styles.filterBtnActive]} onPress={() => setFilter("resolved")}>
-            <Text style={[styles.filterTxt, filter === "resolved" && styles.filterTxtActive]}>Đã xử lý</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.filterBtn, filter === "all" && styles.filterBtnActive]} onPress={() => setFilter("all")}>
-            <Text style={[styles.filterTxt, filter === "all" && styles.filterTxtActive]}>Tất cả</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.content}>
-        {filtered.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="chatbubbles-outline" size={48} color="#c0cbe8" />
-            <Text style={styles.emptyTxt}>Tuyệt vời! Không có khiếu nại nào.</Text>
-          </View>
-        ) : (
-          filtered.map(item => (
-            <TouchableOpacity key={item.id} style={styles.card} onPress={() => { setSelected(item); setReplyText(item.reply || ""); }} activeOpacity={0.7}>
-              <View style={styles.cardHeader}>
-                <View style={styles.userRow}>
-                  <Ionicons name="person-circle" size={20} color="#4f7cff" />
-                  <Text style={styles.userName}>{item.userName}</Text>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: item.status === "resolved" ? "#d1fae5" : "#fee2e2" }]}>
-                  <Text style={[styles.statusTxt, { color: item.status === "resolved" ? "#059669" : "#dc2626" }]}>
-                    {item.status === "resolved" ? "Đã xử lý" : "Chờ xử lý"}
-                  </Text>
-                </View>
+      {/* Detail Modal */}
+      <Modal visible={showDetail} animationType="slide" transparent onRequestClose={() => setShowDetail(false)}>
+        <View style={s.modalOverlay}>
+          <TouchableOpacity style={s.modalBackdrop} activeOpacity={1} onPress={() => setShowDetail(false)} />
+          {selected && (
+            <View style={s.modalSheet}>
+              <View style={s.modalHandle} />
+              <View style={s.modalHeader}>
+                <Text style={s.modalTitle}>Chi tiết khiếu nại</Text>
+                <TouchableOpacity onPress={() => setShowDetail(false)} style={s.closeBtn}>
+                  <Ionicons name="close" size={20} color="#7a8cc2" />
+                </TouchableOpacity>
               </View>
-              <Text style={styles.tourName}>Tour: {item.tourName}</Text>
-              <Text style={styles.issueTxt} numberOfLines={2}>"{item.issue}"</Text>
-              <Text style={styles.dateTxt}>{item.date}</Text>
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
-
-      {/* Modal Phản hồi */}
-      <Modal visible={!!selected} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
-            {selected && (
-              <>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Chi tiết Khiếu nại</Text>
-                  <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
-                    <Ionicons name="close" size={24} color="#1f2a58" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={styles.modalBody}>
-                  <View style={styles.issueBox}>
-                    <Text style={styles.issueBoxLabel}>Khách hàng: {selected.userName}</Text>
-                    <Text style={styles.issueBoxTour}>{selected.tourName}</Text>
-                    <View style={styles.divider} />
-                    <Text style={styles.issueContent}>"{selected.issue}"</Text>
+              <ScrollView contentContainerStyle={s.modalBody} showsVerticalScrollIndicator={false}>
+                {/* Status + Priority */}
+                <View style={s.badgeRow}>
+                  <View style={[s.badge, { backgroundColor: STATUS_META[selected.status].bg }]}>
+                    <Text style={[s.badgeTxt, { color: STATUS_META[selected.status].color }]}>{STATUS_META[selected.status].label}</Text>
                   </View>
-
-                  <Text style={styles.inputLabel}>Phản hồi / Hướng xử lý</Text>
-                  <TextInput
-                    style={styles.replyInput}
-                    placeholder="Nhập nội dung xử lý để báo lại cho khách..."
-                    value={replyText}
-                    onChangeText={setReplyText}
-                    multiline
-                    editable={selected.status === "pending"}
-                  />
-
-                  {selected.status === "pending" ? (
-                    <TouchableOpacity style={styles.saveBtn} onPress={handleResolve}>
-                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                      <Text style={styles.saveBtnTxt}>Đánh dấu Đã xử lý</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={styles.resolvedNote}>
-                      <Ionicons name="shield-checkmark" size={18} color="#059669" />
-                      <Text style={styles.resolvedNoteTxt}>Khiếu nại này đã được đóng.</Text>
+                  <View style={[s.badge, { backgroundColor: PRIORITY_META[selected.priority].bg }]}>
+                    <Ionicons name="alert-circle-outline" size={12} color={PRIORITY_META[selected.priority].color} />
+                    <Text style={[s.badgeTxt, { color: PRIORITY_META[selected.priority].color }]}>Ưu tiên {PRIORITY_META[selected.priority].label}</Text>
+                  </View>
+                  {selected.voucherSent && (
+                    <View style={[s.badge, { backgroundColor: "#dcfce7" }]}>
+                      <Ionicons name="ticket-outline" size={12} color="#16a34a" />
+                      <Text style={[s.badgeTxt, { color: "#16a34a" }]}>Đã gửi voucher</Text>
                     </View>
                   )}
-                </ScrollView>
-              </>
-            )}
-          </KeyboardAvoidingView>
+                </View>
+                {/* Info */}
+                {[
+                  { icon: "person-outline",  label: "Khách hàng",  value: selected.guestName },
+                  { icon: "mail-outline",    label: "Email",       value: selected.guestEmail },
+                  { icon: "receipt-outline", label: "Booking",     value: selected.bookingId || "---" },
+                  { icon: "cash-outline",    label: "Số tiền",     value: selected.amount ? fmt(selected.amount) : "---", hl: true },
+                  { icon: "calendar-outline",label: "Ngày tạo",    value: selected.createdAt },
+                  { icon: "person-circle-outline", label: "Xử lý bởi", value: selected.assignedTo || "Chưa phân công" },
+                ].map((row, i) => (
+                  <View key={i} style={s.detailRow}>
+                    <View style={s.detailIcon}>
+                      <Ionicons name={row.icon as any} size={14} color="#7a8cc2" />
+                    </View>
+                    <Text style={s.detailLabel}>{row.label}</Text>
+                    <Text style={[s.detailValue, (row as any).hl && { color: "#dc2626", fontWeight: "800" }]}>{row.value}</Text>
+                  </View>
+                ))}
+                {/* Description */}
+                <View style={s.descBox}>
+                  <Text style={s.descTitle}>Nội dung khiếu nại</Text>
+                  <Text style={s.descContent}>{selected.description}</Text>
+                </View>
+                {/* Admin note */}
+                <Text style={s.noteLabel}>Ghi chú xử lý</Text>
+                <TextInput
+                  style={s.noteInput}
+                  value={adminNote}
+                  onChangeText={setAdminNote}
+                  placeholder="Nhập ghi chú xử lý khiếu nại..."
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                  placeholderTextColor="#b0bdd8"
+                />
+                {/* Action buttons */}
+                <Text style={s.actionsTitle}>Thao tác</Text>
+                <View style={s.modalActionsGrid}>
+                  {selected.status !== "investigating" && selected.status !== "resolved" && selected.status !== "rejected" && (
+                    <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#eaf0ff" }]} onPress={() => updateStatus(selected.id, "investigating")}>
+                      <Ionicons name="search-outline" size={16} color="#2856d6" />
+                      <Text style={[s.modalActionTxt, { color: "#2856d6" }]}>Điều tra</Text>
+                    </TouchableOpacity>
+                  )}
+                  {selected.status !== "resolved" && (
+                    <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#dcfce7" }]} onPress={() => updateStatus(selected.id, "resolved")}>
+                      <Ionicons name="checkmark-circle-outline" size={16} color="#16a34a" />
+                      <Text style={[s.modalActionTxt, { color: "#16a34a" }]}>Giải quyết</Text>
+                    </TouchableOpacity>
+                  )}
+                  {selected.status !== "rejected" && (
+                    <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#fee2e2" }]} onPress={() => updateStatus(selected.id, "rejected")}>
+                      <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
+                      <Text style={[s.modalActionTxt, { color: "#dc2626" }]}>Từ chối</Text>
+                    </TouchableOpacity>
+                  )}
+                  {!selected.voucherSent && (
+                    <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#fef9c3" }]} onPress={() => sendVoucher(selected)}>
+                      <Ionicons name="ticket-outline" size={16} color="#d97706" />
+                      <Text style={[s.modalActionTxt, { color: "#d97706" }]}>Gửi voucher</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#f3f7ff" }]} onPress={() => { setShowDetail(false); router.push("/staff-livechat" as any); }}>
+                    <Ionicons name="chatbubble-outline" size={16} color="#4f7cff" />
+                    <Text style={[s.modalActionTxt, { color: "#4f7cff" }]}>Chat khách</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          )}
         </View>
       </Modal>
 
-<<<<<<< Updated upstream
-      <Modal visible={confirmPopup.visible} transparent animationType="fade">
-        <View style={styles.confirmOverlay}>
-          <View style={styles.confirmBox}>
-            <View style={[styles.confirmIconWrap, { backgroundColor: confirmPopup.type === "success" ? "#d1fae5" : "#fee2e2" }]}>
-              <Ionicons name={confirmPopup.type === "success" ? "checkmark-circle" : "warning"} size={32} color={confirmPopup.type === "success" ? "#10b981" : "#ef4444"} />
-            </View>
-            <Text style={styles.confirmTitle}>{confirmPopup.title}</Text>
-            <Text style={styles.confirmMessage}>{confirmPopup.message}</Text>
-            <TouchableOpacity style={styles.confirmSingleBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
-              <Text style={styles.confirmSingleBtnTxt}>Đóng</Text>
-=======
       {/* Header */}
       <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity onPress={() => router.back()} style={s.iconBtn}>
@@ -292,116 +278,46 @@ export default function AdminComplaints() {
           const pm = PRIORITY_META[c.priority];
           return (
             <TouchableOpacity key={c.id} style={[s.card, c.priority === "high" && c.status === "pending" && s.cardUrgent]} onPress={() => openDetail(c)} activeOpacity={0.85}>
-              {/* Ảnh nền */}
-              <View style={s.cImgWrap}>
-                <Image
-                  source={{ uri: TYPE_IMAGES[c.id] || "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=400&q=80" }}
-                  style={s.cImg}
-                  resizeMode="cover"
-                />
-                <View style={s.cImgOverlay} />
-                {/* Badge status + type trên ảnh */}
-                <View style={s.cImgTop}>
-                  <View style={[s.typeIconFloat, { backgroundColor: tm.color }]}>
-                    <Ionicons name={tm.icon as any} size={14} color="#fff" />
-                  </View>
+              <View style={s.cardLeft}>
+                <View style={[s.typeIcon, { backgroundColor: tm.color + "18" }]}>
+                  <Ionicons name={tm.icon as any} size={18} color={tm.color} />
+                </View>
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={s.cardTopRow}>
+                  <Text style={s.cardId}>#{c.id}</Text>
                   <View style={[s.statusBadge, { backgroundColor: sm.bg }]}>
                     <Text style={[s.statusTxt, { color: sm.color }]}>{sm.label}</Text>
                   </View>
                 </View>
-                <View style={s.cImgBottom}>
-                  <Text style={s.cImgId}>#{c.id}</Text>
-                  <View style={[s.priorityBadge, { backgroundColor: pm.bg }]}>
-                    <Text style={[s.priorityTxt, { color: pm.color }]}>Ưu tiên {pm.label}</Text>
-                  </View>
-                </View>
-              </View>
-              {/* Nội dung */}
-              <View style={s.cBody}>
                 <Text style={s.cardTitle} numberOfLines={1}>{c.title}</Text>
-                <View style={s.cardGuestRow}>
-                  <Ionicons name="person-outline" size={11} color="#7a8cc2" />
-                  <Text style={s.cardGuest}>{c.guestName} · {c.createdAt}</Text>
-                </View>
+                <Text style={s.cardGuest}>{c.guestName} · {c.createdAt}</Text>
                 <View style={s.cardMetaRow}>
                   <View style={[s.typeBadge, { backgroundColor: tm.color + "15" }]}>
                     <Text style={[s.typeTxt, { color: tm.color }]}>{tm.label}</Text>
                   </View>
-                  {c.amount ? (
-                    <View style={s.amountPill}>
-                      <Text style={s.amountTxt}>{fmt(c.amount)}</Text>
-                    </View>
-                  ) : null}
-                  <Ionicons name="chevron-forward" size={14} color="#c0cbe8" style={{ marginLeft: "auto" }} />
+                  <View style={[s.priorityBadge, { backgroundColor: pm.bg }]}>
+                    <Text style={[s.priorityTxt, { color: pm.color }]}>Ưu tiên {pm.label}</Text>
+                  </View>
+                  {c.amount ? <Text style={s.amountTxt}>{fmt(c.amount)}</Text> : null}
                 </View>
               </View>
->>>>>>> Stashed changes
+              <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />
             </TouchableOpacity>
+          );
+        })}
+        {filtered.length === 0 && (
+          <View style={s.emptyCard}>
+            <Ionicons name="shield-checkmark-outline" size={48} color="#c0cbe8" />
+            <Text style={s.emptyTxt}>Không có khiếu nại nào</Text>
           </View>
-        </View>
-      </Modal>
-
-      <AdminTabBar role="admin" activeRoute="admin-complaints" />
+        )}
+      </ScrollView>
+      <AdminTabBar role="admin" activeRoute="/admin-complaints" />
     </View>
   );
 }
 
-<<<<<<< Updated upstream
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f3f7ff" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
-  backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
-  headerTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  
-  filtersWrapper: { paddingHorizontal: 16, paddingBottom: 10 },
-  filterRow: { flexDirection: "row", backgroundColor: "#fff", borderRadius: 12, padding: 4, borderWidth: 1, borderColor: "#e4ebff" },
-  filterBtn: { flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: 8 },
-  filterBtnActive: { backgroundColor: "#eaf0ff" },
-  filterTxt: { fontSize: 13, fontWeight: "600", color: "#94a8d8" },
-  filterTxtActive: { color: "#4f7cff", fontWeight: "800" },
-
-  content: { padding: 16, paddingBottom: 100 },
-  emptyState: { alignItems: "center", marginTop: 60 },
-  emptyTxt: { color: "#94a8d8", marginTop: 10, fontSize: 14 },
-  
-  card: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: "#e4ebff", elevation: 2, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10 },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  userRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  userName: { fontSize: 14, fontWeight: "700", color: "#1f2a58" },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  statusTxt: { fontSize: 11, fontWeight: "800" },
-  tourName: { fontSize: 13, color: "#4f7cff", fontWeight: "600", marginBottom: 8 },
-  issueTxt: { fontSize: 14, color: "#64748b", fontStyle: "italic", marginBottom: 10, lineHeight: 20 },
-  dateTxt: { fontSize: 11, color: "#94a8d8", textAlign: "right" },
-
-  modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "flex-end" },
-  modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "90%" },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  closeBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  modalBody: { padding: 20 },
-  issueBox: { backgroundColor: "#fef2f2", borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: "#fecaca" },
-  issueBoxLabel: { color: "#dc2626", fontWeight: "700", fontSize: 14 },
-  issueBoxTour: { color: "#b91c1c", fontSize: 12, marginTop: 2 },
-  divider: { height: 1, backgroundColor: "#fca5a5", marginVertical: 10 },
-  issueContent: { color: "#7f1d1d", fontSize: 15, fontStyle: "italic", lineHeight: 22 },
-  
-  inputLabel: { fontSize: 14, fontWeight: "800", color: "#1f2a58", marginBottom: 8 },
-  replyInput: { backgroundColor: "#f8fafc", borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, height: 120, textAlignVertical: "top", color: "#1f2a58", fontSize: 14 },
-  
-  saveBtn: { backgroundColor: "#10b981", borderRadius: 14, height: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 20 },
-  saveBtnTxt: { color: "#fff", fontSize: 16, fontWeight: "800" },
-  resolvedNote: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 20, padding: 16, backgroundColor: "#d1fae5", borderRadius: 12 },
-  resolvedNoteTxt: { color: "#059669", fontWeight: "700" },
-
-  confirmOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
-  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center" },
-  confirmIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  confirmTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58", marginBottom: 8, textAlign: "center" },
-  confirmMessage: { fontSize: 14, color: "#7a8cc2", textAlign: "center", lineHeight: 22, marginBottom: 24 },
-  confirmSingleBtn: { width: "100%", height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  confirmSingleBtnTxt: { color: "#1f2a58", fontSize: 15, fontWeight: "800" },
-=======
 const s = StyleSheet.create({
   screen:         { flex: 1, backgroundColor: "#f3f7ff" },
   topBar:         { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4ebff", gap: 10 },
@@ -419,7 +335,8 @@ const s = StyleSheet.create({
   filterTxt:      { color: "#6c7fb7", fontSize: 12, fontWeight: "600" },
   filterTxtActive:{ color: "#fff" },
   content:        { padding: 14, paddingTop: 0 },
-  card:           { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, marginBottom: 10, overflow: "hidden", shadowColor: "#a0b4e8", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 3 },  cardUrgent:     { borderColor: "#fecaca", backgroundColor: "#fffafa" },
+  card:           { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, marginBottom: 8 },
+  cardUrgent:     { borderColor: "#fecaca", backgroundColor: "#fffafa" },
   cardLeft:       { alignItems: "center" },
   typeIcon:       { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   cardTopRow:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
@@ -461,16 +378,4 @@ const s = StyleSheet.create({
   modalActionsGrid:{ flexDirection: "row", flexWrap: "wrap", gap: 8 },
   modalActionBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   modalActionTxt: { fontSize: 12, fontWeight: "700" },
-  // Card có ảnh
-  cImgWrap:       { height: 110, marginHorizontal: -14, marginTop: -14, overflow: "hidden" },
-  cImg:           { width: "100%", height: "100%" },
-  cImgOverlay:    { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,20,60,0.3)" },
-  cImgTop:        { position: "absolute", top: 10, left: 12, right: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cImgBottom:     { position: "absolute", bottom: 10, left: 12, right: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cImgId:         { color: "#fff", fontSize: 11, fontWeight: "700", opacity: 0.9 },
-  typeIconFloat:  { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  cBody:          { paddingTop: 10 },
-  cardGuestRow:   { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 6 },
-  amountPill:     { backgroundColor: "#fee2e2", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
->>>>>>> Stashed changes
 });

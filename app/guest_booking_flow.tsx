@@ -27,8 +27,6 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-<<<<<<< Updated upstream
-=======
 import { Image } from 'react-native';
 
 const TOUR_IMG_MAP: Record<string, string> = {
@@ -65,7 +63,6 @@ function getGuideAvatar(g: AppGuide): string {
   return GUIDE_AVATARS[g.id] ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(g.name)}&background=4f7cff&color=fff&size=200`;
 }
->>>>>>> Stashed changes
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {

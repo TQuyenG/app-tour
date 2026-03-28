@@ -22,16 +22,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-<<<<<<< Updated upstream
-interface AdminProfile {
-  name: string;
-  email: string;
-  phone: string;
-  role: string;
-}
-
-export default function AdminProfileScreen() {
-=======
 const MENU_ITEMS = [
   { icon: "map-outline",               label: "Quản lý Tour",        route: "/admin-tour-management",   color: "#4f7cff" },
   { icon: "people-outline",            label: "Quản lý HDV",         route: "/admin-guide-management",  color: "#22c55e" },
@@ -50,12 +40,11 @@ const MENU_ITEMS = [
 
 
 export default function AdminProfile() {
->>>>>>> Stashed changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
   
   // State Thông tin cá nhân
-  const [profile, setProfile] = useState<AdminProfile>({
+  const [profile, setProfile] = useState({
     name: "Super Admin",
     email: "admin@localmate.vn",
     phone: "0901234567",

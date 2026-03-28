@@ -1,314 +1,399 @@
 /**
  * app/admin-flash-sale.tsx
- * Admin quản lý các chương trình Flash Sale / Deal Hot
- * Code chuẩn UI Xanh Dương, an toàn dữ liệu, Custom Popup, Ẩn Header
+ * Admin quản lý Flash Sale và Deal Hot
  */
-import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+  Alert, Modal, ScrollView, StatusBar, StyleSheet,
+  Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-const STORAGE_KEY = "@admin_flash_sales";
-
-type SaleStatus = "active" | "upcoming" | "ended";
+import { AdminTabBar } from "@/components/AdminTabBar";
 
 interface FlashSale {
-  id: string; title: string; discount: string;
-  startTime: string; endTime: string; status: SaleStatus; color: string;
+  id: string; tourName: string; originalPrice: number;
+  salePrice: number; discountPercent: number;
+  totalSlots: number; soldSlots: number;
+  startTime: string; endTime: string;
+  active: boolean; color: string;
+  clicks: number; orders: number;
 }
 
-const SEED: FlashSale[] = [
-  { id: "fs1", title: "Flash Sale Hè Rực Rỡ", discount: "Đồng giá 1.990K", startTime: "01/06/2026", endTime: "05/06/2026", status: "upcoming", color: "#f59e0b" },
-  { id: "fs2", title: "Deal Đêm Khuya 12H", discount: "Giảm 50%", startTime: "Hôm nay 00:00", endTime: "Hôm nay 02:00", status: "active", color: "#ef4444" }
+const SEED_FLASH: FlashSale[] = [
+  { id: "fs1", tourName: "Đà Lạt 3N2Đ - Săn mây & Chill",       originalPrice: 2990000, salePrice: 1944000, discountPercent: 35, totalSlots: 20, soldSlots: 14, startTime: "2026-04-12T08:00:00", endTime: "2026-04-12T23:59:00", active: true,  color: "#4f7cff", clicks: 432,  orders: 14 },
+  { id: "fs2", tourName: "Phú Quốc 4N3Đ - Resort biển xanh",     originalPrice: 4690000, salePrice: 2814000, discountPercent: 40, totalSlots: 10, soldSlots: 8,  startTime: "2026-04-12T10:00:00", endTime: "2026-04-13T10:00:00", active: true,  color: "#ef4444", clicks: 891,  orders: 8 },
+  { id: "fs3", tourName: "Sapa 3N2Đ - Mùa lúa chín",             originalPrice: 3590000, salePrice: 2513000, discountPercent: 30, totalSlots: 15, soldSlots: 5,  startTime: "2026-04-13T00:00:00", endTime: "2026-04-14T00:00:00", active: false, color: "#16a34a", clicks: 0,    orders: 0 },
+  { id: "fs4", tourName: "Hội An 2N1Đ - Phố cổ đèn lồng",       originalPrice: 2300000, salePrice: 1380000, discountPercent: 40, totalSlots: 30, soldSlots: 22, startTime: "2026-04-11T08:00:00", endTime: "2026-04-12T08:00:00", active: false, color: "#f59e0b", clicks: 1203, orders: 22 },
+  { id: "fs5", tourName: "Hạ Long 3N2Đ - Vịnh kỳ quan",         originalPrice: 3500000, salePrice: 2100000, discountPercent: 40, totalSlots: 12, soldSlots: 3,  startTime: "2026-04-14T08:00:00", endTime: "2026-04-15T08:00:00", active: false, color: "#8b5cf6", clicks: 0,    orders: 0 },
+  { id: "fs6", tourName: "Côn Đảo 4N3Đ - Thiên đường hoang sơ", originalPrice: 5300000, salePrice: 3710000, discountPercent: 30, totalSlots: 8,  soldSlots: 8,  startTime: "2026-04-10T00:00:00", endTime: "2026-04-11T00:00:00", active: false, color: "#dc2626", clicks: 2341, orders: 8 },
 ];
 
-const COLORS = ["#ef4444", "#f59e0b", "#3b82f6", "#10b981", "#8b5cf6"];
+const TOUR_OPTIONS = [
+  "Đà Lạt 3N2Đ - Săn mây & Chill",
+  "Phú Quốc 4N3Đ - Resort biển xanh",
+  "Nha Trang 3N2Đ - Lặn san hô",
+  "Sapa 3N2Đ - Mùa lúa chín",
+  "Hội An 2N1Đ - Phố cổ đèn lồng",
+  "Hạ Long 3N2Đ - Vịnh kỳ quan",
+  "Mũi Né 2N1Đ - Đồi cát vàng",
+  "Côn Đảo 4N3Đ - Thiên đường hoang sơ",
+];
 
-export default function AdminFlashSaleScreen() {
+const fmt    = (n: number) => `${n.toLocaleString("vi-VN")}đ`;
+const fmtM   = (n: number) => `${(n / 1000000).toFixed(1)}tr`;
+
+function useCountdown(endTime: string, active: boolean) {
+  const [remaining, setRemaining] = useState("");
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!active) { setRemaining("Chưa chạy"); return; }
+    const update = () => {
+      const diff = new Date(endTime).getTime() - Date.now();
+      if (diff <= 0) { setRemaining("Đã kết thúc"); clearInterval(intervalRef.current!); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setRemaining(`${h}h ${m}m ${s}s`);
+    };
+    update();
+    intervalRef.current = setInterval(update, 1000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [endTime, active]);
+  return remaining;
+}
+
+function CountdownCell({ endTime, active }: { endTime: string; active: boolean }) {
+  const t = useCountdown(endTime, active);
+  return <Text style={[cst.countdown, !active && { color: "#94a3b8" }]}>{t}</Text>;
+}
+const cst = StyleSheet.create({ countdown: { color: "#ef4444", fontWeight: "800", fontSize: 12 } });
+
+export default function AdminFlashSale() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [sales, setSales]           = useState<FlashSale[]>([]);
+  const [showModal, setShowModal]   = useState(false);
+  const [form, setForm]             = useState({ tourName: "", originalPrice: "", discountPercent: "", totalSlots: "", startTime: "", endTime: "", color: "#ef4444" });
+  const [tab, setTab]               = useState<"active" | "upcoming" | "ended">("active");
 
-  const [sales, setSales] = useState<FlashSale[]>([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingSale, setEditingSale] = useState<Partial<FlashSale>>({});
+  useFocusEffect(useCallback(() => {
+    AsyncStorage.getItem("@admin_flash_sales").then(raw => {
+      setSales(raw ? JSON.parse(raw) : SEED_FLASH);
+    }).catch(() => setSales(SEED_FLASH));
+  }, []));
 
-  const [confirmPopup, setConfirmPopup] = useState<{
-    visible: boolean; type: "delete" | "success" | "error";
-    title: string; message: string; targetId?: string;
-  }>({ visible: false, type: "success", title: "", message: "" });
+  const persist = async (data: FlashSale[]) => {
+    setSales(data);
+    await AsyncStorage.setItem("@admin_flash_sales", JSON.stringify(data)).catch(() => {});
+  };
 
-  useFocusEffect(
-    useCallback(() => {
-      loadSales();
-    }, [])
-  );
-
-  const loadSales = async () => {
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) setSales(JSON.parse(raw) || []);
-      else {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED));
-        setSales(SEED);
-      }
-    } catch (e) {
-      setSales([]);
+  const createSale = async () => {
+    if (!form.tourName || !form.originalPrice || !form.discountPercent) {
+      Alert.alert("Thiếu thông tin", "Vui lòng điền đủ các trường bắt buộc *"); return;
     }
+    const origPrice    = parseFloat(form.originalPrice.replace(/\D/g, ""));
+    const discPct      = parseFloat(form.discountPercent);
+    const salePrice    = Math.round(origPrice * (1 - discPct / 100));
+    const newSale: FlashSale = {
+      id: `fs${Date.now()}`,
+      tourName: form.tourName,
+      originalPrice: origPrice,
+      salePrice,
+      discountPercent: discPct,
+      totalSlots: parseInt(form.totalSlots) || 10,
+      soldSlots: 0,
+      startTime: form.startTime || new Date().toISOString(),
+      endTime:   form.endTime   || new Date(Date.now() + 86400000).toISOString(),
+      active: false,
+      color: form.color,
+      clicks: 0, orders: 0,
+    };
+    await persist([newSale, ...sales]);
+    setShowModal(false);
+    setForm({ tourName: "", originalPrice: "", discountPercent: "", totalSlots: "", startTime: "", endTime: "", color: "#ef4444" });
+    Alert.alert("✅ Đã tạo Flash Sale", `Tour "${form.tourName}" giảm ${discPct}%`);
   };
 
-  const openModal = (item?: FlashSale) => {
-    if (item) setEditingSale(item);
-    else setEditingSale({
-      id: `fs-${Date.now()}`, title: "", discount: "",
-      startTime: "", endTime: "", status: "upcoming", color: COLORS[Math.floor(Math.random() * COLORS.length)]
-    });
-    setModalVisible(true);
+  const toggleActive = async (id: string) => {
+    await persist(sales.map(s => s.id === id ? { ...s, active: !s.active } : s));
   };
 
-  const saveSale = async () => {
-    if (!editingSale.title || !editingSale.discount) {
-      setConfirmPopup({ visible: true, type: "error", title: "Thiếu thông tin", message: "Vui lòng nhập Tên chương trình và Mức giảm." });
-      return;
-    }
-    try {
-      let updatedList = [...sales];
-      const isNew = !sales.find(s => s.id === editingSale.id);
-      if (isNew) updatedList.unshift(editingSale as FlashSale);
-      else updatedList = updatedList.map((s) => s.id === editingSale.id ? editingSale as FlashSale : s);
-      
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedList));
-      setSales(updatedList);
-      setModalVisible(false);
-      setConfirmPopup({ visible: true, type: "success", title: "Thành công", message: "Đã lưu chương trình Flash Sale." });
-    } catch (error) {}
+  const deleteSale = (fs: FlashSale) => {
+    Alert.alert("Xóa flash sale", `Xóa flash sale "${fs.tourName}"?`, [
+      { text: "Hủy", style: "cancel" },
+      { text: "Xóa", style: "destructive", onPress: async () => await persist(sales.filter(s => s.id !== fs.id)) },
+    ]);
   };
 
-  const promptDelete = (id: string, title: string) => {
-    setConfirmPopup({
-      visible: true, type: "delete", title: "Xóa chương trình",
-      message: `Xóa Flash Sale "${title || "N/A"}" khỏi hệ thống? Hành động không thể hoàn tác.`, targetId: id
-    });
-  };
+  const now = Date.now();
+  const filtered = sales.filter(s => {
+    const end   = new Date(s.endTime).getTime();
+    const start = new Date(s.startTime).getTime();
+    if (tab === "active")   return s.active && end > now;
+    if (tab === "upcoming") return !s.active && start > now;
+    return end <= now || s.soldSlots >= s.totalSlots;
+  });
 
-  const executeDelete = async () => {
-    if (!confirmPopup.targetId) return;
-    const updated = sales.filter((s) => s.id !== confirmPopup.targetId);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    setSales(updated);
-    setConfirmPopup({ visible: true, type: "success", title: "Đã xóa", message: "Chương trình đã được xóa." });
-  };
+  const totalRevenue = sales.filter(s=>s.soldSlots>0).reduce((sum,s) => sum + s.salePrice * s.soldSlots, 0);
+  const totalOrders  = sales.reduce((sum, s) => sum + s.orders, 0);
+  const COLORS_PICK  = ["#ef4444","#4f7cff","#16a34a","#8b5cf6","#f59e0b","#dc2626","#06b6d4"];
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f3f7ff" />
-      <Stack.Screen options={{ headerShown: false }} />
-      
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace("/admin-home")}>
-          <Ionicons name="chevron-back" size={24} color="#1f2a58" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Quản lý Flash Sale</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => openModal()}>
-          <Ionicons name="add" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+    <View style={s.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {sales.map((item) => (
-          <View key={item.id} style={styles.card}>
-            <View style={[styles.cardHeader, { backgroundColor: (item.color || "#4f7cff") + "15" }]}>
-              <View style={styles.headerTitleRow}>
-                <Ionicons name="flash" size={20} color={item.color || "#4f7cff"} />
-                <Text style={[styles.cardTitle, { color: item.color || "#4f7cff" }]}>{item.title || "N/A"}</Text>
-              </View>
-              <View style={[styles.statusBadge, { backgroundColor: item.status === "active" ? "#d1fae5" : item.status === "upcoming" ? "#fef3c7" : "#f1f5f9" }]}>
-                <Text style={[styles.statusTxt, { color: item.status === "active" ? "#059669" : item.status === "upcoming" ? "#d97706" : "#64748b" }]}>
-                  {item.status === "active" ? "Đang diễn ra" : item.status === "upcoming" ? "Sắp diễn ra" : "Đã kết thúc"}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.cardBody}>
-              <View style={styles.infoRow}>
-                <Ionicons name="pricetag-outline" size={16} color="#7a8cc2" />
-                <Text style={styles.infoTxt}>Mức giảm: <Text style={{ fontWeight: "800", color: "#ef4444" }}>{item.discount || "0"}</Text></Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Ionicons name="time-outline" size={16} color="#7a8cc2" />
-                <Text style={styles.infoTxt}>{item.startTime || "..."} - {item.endTime || "..."}</Text>
-              </View>
-            </View>
-
-            <View style={styles.cardActionsRow}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => openModal(item)} activeOpacity={0.6}>
-                <Ionicons name="create-outline" size={18} color="#f59e0b" />
-                <Text style={[styles.actionBtnTxt, { color: "#f59e0b" }]}>Sửa</Text>
-              </TouchableOpacity>
-              <View style={styles.actionDivider} />
-              <TouchableOpacity style={styles.actionBtn} onPress={() => promptDelete(item.id, item.title)} activeOpacity={0.6}>
-                <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                <Text style={[styles.actionBtnTxt, { color: "#ef4444" }]}>Xóa</Text>
+      {/* Create Modal */}
+      <Modal visible={showModal} animationType="slide" transparent onRequestClose={() => setShowModal(false)}>
+        <View style={s.modalOverlay}>
+          <TouchableOpacity style={s.modalBackdrop} activeOpacity={1} onPress={() => setShowModal(false)} />
+          <View style={s.modalSheet}>
+            <View style={s.modalHandle} />
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Tạo Flash Sale mới</Text>
+              <TouchableOpacity onPress={() => setShowModal(false)} style={s.closeBtn}>
+                <Ionicons name="close" size={20} color="#7a8cc2" />
               </TouchableOpacity>
             </View>
-          </View>
-        ))}
-      </ScrollView>
-
-      {/* Modal Thêm Sửa */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{(editingSale?.id || "").startsWith("fs-") && !sales.find(s=>s.id===editingSale?.id) ? "Tạo Flash Sale" : "Sửa Flash Sale"}</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
-                <Ionicons name="close" size={24} color="#1f2a58" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-              <Text style={styles.inputLabel}>Tên chương trình</Text>
-              <TextInput style={styles.input} value={editingSale?.title || ""} onChangeText={(t) => setEditingSale(prev => ({...prev, title: t}))} placeholder="VD: Deal Đêm Khuya 12H" />
-
-              <Text style={styles.inputLabel}>Mức giảm (Text hiển thị)</Text>
-              <TextInput style={styles.input} value={editingSale?.discount || ""} onChangeText={(t) => setEditingSale(prev => ({...prev, discount: t}))} placeholder="VD: Giảm 50% hoặc Đồng giá 1.990K" />
-
-              <View style={styles.rowGrid}>
-                <View style={styles.col}>
-                  <Text style={styles.inputLabel}>Bắt đầu</Text>
-                  <TextInput style={styles.input} value={editingSale?.startTime || ""} onChangeText={(t) => setEditingSale(prev => ({...prev, startTime: t}))} placeholder="01/06/2026" />
+            <ScrollView contentContainerStyle={s.modalBody} showsVerticalScrollIndicator={false}>
+              {/* Tour picker */}
+              <Text style={s.fieldLabel}>Chọn Tour *</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 14 }}>
+                {TOUR_OPTIONS.map(t => (
+                  <TouchableOpacity key={t} style={[s.tourPill, form.tourName === t && s.tourPillActive]} onPress={() => setForm(p => ({ ...p, tourName: t }))}>
+                    <Text style={[s.tourPillTxt, form.tourName === t && s.tourPillTxtActive]} numberOfLines={1}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              {[
+                { label: "Giá gốc (đ) *",    key: "originalPrice",  placeholder: "2990000", kb: "numeric" },
+                { label: "Giảm giá (%) *",    key: "discountPercent",placeholder: "30",      kb: "numeric" },
+                { label: "Số slot",           key: "totalSlots",     placeholder: "20",      kb: "numeric" },
+                { label: "Bắt đầu",           key: "startTime",      placeholder: "2026-04-15T08:00:00", kb: "default" },
+                { label: "Kết thúc",          key: "endTime",        placeholder: "2026-04-15T23:59:00", kb: "default" },
+              ].map((field, i) => (
+                <View key={i} style={s.fieldGroup}>
+                  <Text style={s.fieldLabel}>{field.label}</Text>
+                  <TextInput
+                    style={s.fieldInput}
+                    value={(form as any)[field.key]}
+                    onChangeText={v => setForm(p => ({ ...p, [field.key]: v }))}
+                    placeholder={field.placeholder}
+                    placeholderTextColor="#b0bdd8"
+                    keyboardType={field.kb as any}
+                  />
                 </View>
-                <View style={styles.col}>
-                  <Text style={styles.inputLabel}>Kết thúc</Text>
-                  <TextInput style={styles.input} value={editingSale?.endTime || ""} onChangeText={(t) => setEditingSale(prev => ({...prev, endTime: t}))} placeholder="05/06/2026" />
+              ))}
+              {/* Preview */}
+              {form.originalPrice && form.discountPercent && (
+                <View style={s.previewBox}>
+                  <Text style={s.previewLabel}>Preview giá:</Text>
+                  <Text style={s.previewOrig}>{fmt(parseFloat(form.originalPrice.replace(/\D/g,"")) || 0)}</Text>
+                  <Ionicons name="arrow-forward" size={14} color="#7a8cc2" />
+                  <Text style={s.previewSale}>{fmt(Math.round((parseFloat(form.originalPrice.replace(/\D/g,""))||0) * (1 - (parseFloat(form.discountPercent)||0) / 100)))}</Text>
+                  <View style={s.discBadge}><Text style={s.discTxt}>-{form.discountPercent}%</Text></View>
                 </View>
-              </View>
-
-              <Text style={styles.inputLabel}>Trạng thái</Text>
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
-                {(["upcoming", "active", "ended"] as const).map(st => (
-                  <TouchableOpacity key={st} style={[styles.typeBtn, editingSale?.status === st && styles.typeBtnActive]} onPress={() => setEditingSale(prev => ({...prev, status: st}))}>
-                    <Text style={[styles.typeTxt, editingSale?.status === st && styles.typeTxtActive]}>
-                      {st === "upcoming" ? "Sắp tới" : st === "active" ? "Đang chạy" : "Đã xong"}
-                    </Text>
+              )}
+              {/* Color */}
+              <Text style={s.fieldLabel}>Màu nhãn</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+                {COLORS_PICK.map(c => (
+                  <TouchableOpacity key={c} style={[s.colorDot, { backgroundColor: c }, form.color === c && s.colorDotActive]} onPress={() => setForm(p => ({ ...p, color: c }))}>
+                    {form.color === c && <Ionicons name="checkmark" size={14} color="#fff" />}
                   </TouchableOpacity>
                 ))}
               </View>
-
-              <TouchableOpacity style={styles.saveBtn} onPress={saveSale}>
-                <Ionicons name="save" size={20} color="#fff" />
-                <Text style={styles.saveBtnTxt}>Lưu chương trình</Text>
+              <TouchableOpacity style={s.createBtn} onPress={createSale}>
+                <Ionicons name="flash" size={18} color="#fff" />
+                <Text style={s.createBtnTxt}>Tạo Flash Sale</Text>
               </TouchableOpacity>
             </ScrollView>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
-
-      {/* Custom Confirm Popup An toàn */}
-      <Modal visible={confirmPopup.visible} transparent animationType="fade">
-        <View style={styles.confirmOverlay}>
-          <View style={styles.confirmBox}>
-            <View style={[
-              styles.confirmIconWrap, 
-              confirmPopup.type === "delete" && { backgroundColor: "#fee2e2" },
-              confirmPopup.type === "success" && { backgroundColor: "#d1fae5" },
-              confirmPopup.type === "error" && { backgroundColor: "#fee2e2" }
-            ]}>
-              <Ionicons 
-                name={confirmPopup.type === "delete" ? "trash" : confirmPopup.type === "success" ? "checkmark-circle" : "warning"} 
-                size={32} 
-                color={confirmPopup.type === "delete" || confirmPopup.type === "error" ? "#ef4444" : "#10b981"} 
-              />
-            </View>
-            <Text style={styles.confirmTitle}>{confirmPopup.title}</Text>
-            <Text style={styles.confirmMessage}>{confirmPopup.message}</Text>
-
-            {confirmPopup.type === "success" || confirmPopup.type === "error" ? (
-              <TouchableOpacity style={styles.confirmSingleBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
-                <Text style={styles.confirmSingleBtnTxt}>Đóng</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.confirmActionRow}>
-                <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
-                  <Text style={styles.confirmCancelBtnTxt}>Hủy bỏ</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.confirmSubmitBtn, { backgroundColor: "#ef4444" }]} onPress={executeDelete}>
-                  <Text style={styles.confirmSubmitBtnTxt}>Xóa ngay</Text>
-                </TouchableOpacity>
-              </View>
-            )}
           </View>
         </View>
       </Modal>
 
-      <AdminTabBar role="admin" activeRoute="admin-flash-sale" />
+      {/* Header */}
+      <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => router.back()} style={s.iconBtn}>
+          <Ionicons name="arrow-back" size={22} color="#1f2a58" />
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>Flash Sale & Deal Hot</Text>
+        <TouchableOpacity style={s.addBtn} onPress={() => setShowModal(true)}>
+          <Ionicons name="add" size={20} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Summary */}
+      <View style={s.summaryRow}>
+        {[
+          { label: "Đang chạy",  value: sales.filter(s => s.active).length, color: "#ef4444" },
+          { label: "Tổng đơn",   value: totalOrders,                          color: "#2856d6" },
+          { label: "Doanh thu",  value: fmtM(totalRevenue),                   color: "#16a34a" },
+          { label: "Slot đã bán",value: sales.reduce((s,x)=>s+x.soldSlots,0), color: "#f59e0b" },
+        ].map((item, i) => (
+          <View key={i} style={s.summaryItem}>
+            <Text style={[s.summaryValue, { color: item.color }]}>{item.value}</Text>
+            <Text style={s.summaryLabel}>{item.label}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Tab */}
+      <View style={s.tabRow}>
+        {[["active","Đang chạy"],["upcoming","Sắp tới"],["ended","Đã kết thúc"]].map(([k, l]) => (
+          <TouchableOpacity key={k} style={[s.tabBtn, tab === k && s.tabBtnActive]} onPress={() => setTab(k as any)}>
+            <Text style={[s.tabBtnTxt, tab === k && s.tabBtnTxtActive]}>{l}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <ScrollView contentContainerStyle={[s.content, { paddingBottom: 90 }]}>
+        {filtered.length === 0 && (
+          <View style={s.emptyCard}>
+            <Ionicons name="flash-outline" size={48} color="#c0cbe8" />
+            <Text style={s.emptyTxt}>Không có flash sale nào</Text>
+            <TouchableOpacity style={s.emptyBtn} onPress={() => setShowModal(true)}>
+              <Text style={s.emptyBtnTxt}>Tạo flash sale mới</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {filtered.map(fs => {
+          const pct = fs.totalSlots > 0 ? (fs.soldSlots / fs.totalSlots) * 100 : 0;
+          return (
+            <View key={fs.id} style={s.card}>
+              {/* Color bar */}
+              <View style={[s.colorBar, { backgroundColor: fs.color }]} />
+              <View style={{ flex: 1, padding: 12 }}>
+                {/* Header row */}
+                <View style={s.cardHeader}>
+                  <View style={[s.discountBadge, { backgroundColor: fs.color }]}>
+                    <Ionicons name="flash" size={12} color="#fff" />
+                    <Text style={s.discountBadgeTxt}>-{fs.discountPercent}%</Text>
+                  </View>
+                  <CountdownCell endTime={fs.endTime} active={fs.active} />
+                  <View style={[s.activePill, { backgroundColor: fs.active ? "#dcfce7" : "#f1f5f9" }]}>
+                    <Text style={[s.activePillTxt, { color: fs.active ? "#16a34a" : "#94a3b8" }]}>
+                      {fs.active ? "Đang chạy" : "Tạm dừng"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={s.tourName} numberOfLines={1}>{fs.tourName}</Text>
+                {/* Price */}
+                <View style={s.priceRow}>
+                  <Text style={s.origPrice}>{fmt(fs.originalPrice)}</Text>
+                  <Ionicons name="arrow-forward" size={12} color="#7a8cc2" />
+                  <Text style={[s.salePrice, { color: fs.color }]}>{fmt(fs.salePrice)}</Text>
+                </View>
+                {/* Slot progress */}
+                <View style={s.slotRow}>
+                  <Text style={s.slotTxt}>{fs.soldSlots}/{fs.totalSlots} slot</Text>
+                  <Text style={s.slotPct}>{pct.toFixed(0)}%</Text>
+                </View>
+                <View style={s.progressBg}>
+                  <View style={[s.progressFill, { width: `${pct}%`, backgroundColor: pct >= 90 ? "#ef4444" : fs.color }]} />
+                </View>
+                {/* Stats */}
+                <View style={s.statsRow}>
+                  <Ionicons name="eye-outline" size={12} color="#7a8cc2" />
+                  <Text style={s.statTxt}>{fs.clicks} lượt xem</Text>
+                  <Ionicons name="receipt-outline" size={12} color="#7a8cc2" />
+                  <Text style={s.statTxt}>{fs.orders} đơn</Text>
+                  <Text style={s.revTxt}>Thu: {fmtM(fs.salePrice * fs.soldSlots)}</Text>
+                </View>
+                {/* Action buttons */}
+                <View style={s.actionRow}>
+                  <TouchableOpacity
+                    style={[s.actionBtn, { backgroundColor: fs.active ? "#fef9c3" : "#dcfce7" }]}
+                    onPress={() => toggleActive(fs.id)}
+                  >
+                    <Ionicons name={fs.active ? "pause-outline" : "play-outline"} size={14} color={fs.active ? "#d97706" : "#16a34a"} />
+                    <Text style={[s.actionTxt, { color: fs.active ? "#d97706" : "#16a34a" }]}>
+                      {fs.active ? "Tạm dừng" : "Kích hoạt"}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fee2e2" }]} onPress={() => deleteSale(fs)}>
+                    <Ionicons name="trash-outline" size={14} color="#dc2626" />
+                    <Text style={[s.actionTxt, { color: "#dc2626" }]}>Xóa</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </ScrollView>
+      <AdminTabBar role="admin" activeRoute="/admin-flash-sale" />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f3f7ff" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
-  backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
-  addBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#4f7cff", alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  headerTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  
-  content: { padding: 16, paddingBottom: 100 },
-  card: { backgroundColor: "#fff", borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: "#e4ebff", elevation: 2, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, overflow: "hidden" },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16 },
-  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  cardTitle: { fontSize: 15, fontWeight: "800" },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  statusTxt: { fontSize: 11, fontWeight: "800" },
-  cardBody: { padding: 16, gap: 10 },
-  infoRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  infoTxt: { fontSize: 14, color: "#1f2a58", fontWeight: "600" },
-
-  cardActionsRow: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#f0f4ff", backgroundColor: "#fafbff" },
-  actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 14 },
-  actionBtnTxt: { fontSize: 13, fontWeight: "800" },
-  actionDivider: { width: 1, backgroundColor: "#f0f4ff", marginVertical: 8 },
-
-  modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "flex-end" },
-  modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "90%" },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  closeBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  modalBody: { padding: 20 },
-  inputLabel: { fontSize: 13, fontWeight: "700", color: "#1f2a58", marginBottom: 8, marginTop: 4 },
-  input: { backgroundColor: "#f8fafc", borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 16, paddingVertical: 14, color: "#1f2a58", fontSize: 14, marginBottom: 12 },
-  rowGrid: { flexDirection: "row", gap: 12 },
-  col: { flex: 1 },
-  typeBtn: { flex: 1, backgroundColor: "#f8fafc", borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 14, alignItems: "center" },
-  typeBtnActive: { backgroundColor: "#eaf0ff", borderColor: "#4f7cff" },
-  typeTxt: { fontSize: 13, fontWeight: "600", color: "#64748b" },
-  typeTxtActive: { color: "#4f7cff", fontWeight: "700" },
-  saveBtn: { backgroundColor: "#4f7cff", borderRadius: 14, height: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, marginBottom: 30, elevation: 4, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
-  saveBtnTxt: { color: "#fff", fontSize: 16, fontWeight: "800" },
-
-  confirmOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
-  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20 },
-  confirmIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  confirmTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58", marginBottom: 8, textAlign: "center" },
-  confirmMessage: { fontSize: 14, color: "#7a8cc2", textAlign: "center", lineHeight: 22, marginBottom: 24 },
-  confirmActionRow: { flexDirection: "row", gap: 12, width: "100%" },
-  confirmCancelBtn: { flex: 1, height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
-  confirmCancelBtnTxt: { color: "#7a8cc2", fontSize: 15, fontWeight: "700" },
-  confirmSubmitBtn: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  confirmSubmitBtnTxt: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  confirmSingleBtn: { width: "100%", height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  confirmSingleBtnTxt: { color: "#1f2a58", fontSize: 15, fontWeight: "800" },
+const s = StyleSheet.create({
+  screen:          { flex: 1, backgroundColor: "#f3f7ff" },
+  topBar:          { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4ebff", gap: 10 },
+  iconBtn:         { width: 36, height: 36, borderRadius: 10, backgroundColor: "#edf2ff", alignItems: "center", justifyContent: "center" },
+  headerTitle:     { flex: 1, fontSize: 18, fontWeight: "800", color: "#1f2a58" },
+  addBtn:          { width: 36, height: 36, borderRadius: 10, backgroundColor: "#ef4444", alignItems: "center", justifyContent: "center" },
+  summaryRow:      { flexDirection: "row", backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4ebff", padding: 14, justifyContent: "space-between" },
+  summaryItem:     { alignItems: "center", flex: 1 },
+  summaryValue:    { fontSize: 16, fontWeight: "900" },
+  summaryLabel:    { color: "#7a8cc2", fontSize: 10, fontWeight: "600", marginTop: 2 },
+  tabRow:          { flexDirection: "row", margin: 14, backgroundColor: "#fff", borderRadius: 12, padding: 4, borderWidth: 1, borderColor: "#e4ebff" },
+  tabBtn:          { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center" },
+  tabBtnActive:    { backgroundColor: "#ef4444" },
+  tabBtnTxt:       { color: "#7a8cc2", fontWeight: "600", fontSize: 12 },
+  tabBtnTxtActive: { color: "#fff" },
+  content:         { paddingHorizontal: 14, paddingTop: 0 },
+  emptyCard:       { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 32, alignItems: "center", gap: 10 },
+  emptyTxt:        { color: "#7a8cc2" },
+  emptyBtn:        { backgroundColor: "#ef4444", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
+  emptyBtnTxt:     { color: "#fff", fontWeight: "700" },
+  card:            { flexDirection: "row", backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", marginBottom: 10, overflow: "hidden" },
+  colorBar:        { width: 6 },
+  cardHeader:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  discountBadge:   { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 4 },
+  discountBadgeTxt:{ color: "#fff", fontWeight: "800", fontSize: 12 },
+  activePill:      { borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3, marginLeft: "auto" },
+  activePillTxt:   { fontSize: 10, fontWeight: "700" },
+  tourName:        { color: "#1f2a58", fontWeight: "800", fontSize: 13, marginBottom: 5 },
+  priceRow:        { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  origPrice:       { color: "#94a3b8", fontSize: 12, textDecorationLine: "line-through" },
+  salePrice:       { fontSize: 15, fontWeight: "900" },
+  slotRow:         { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
+  slotTxt:         { color: "#7a8cc2", fontSize: 11 },
+  slotPct:         { color: "#1f2a58", fontWeight: "700", fontSize: 11 },
+  progressBg:      { height: 6, backgroundColor: "#f0f4ff", borderRadius: 3, overflow: "hidden", marginBottom: 6 },
+  progressFill:    { height: "100%", borderRadius: 3 },
+  statsRow:        { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 8 },
+  statTxt:         { color: "#7a8cc2", fontSize: 11 },
+  revTxt:          { color: "#16a34a", fontWeight: "700", fontSize: 11, marginLeft: "auto" },
+  actionRow:       { flexDirection: "row", gap: 8 },
+  actionBtn:       { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  actionTxt:       { fontSize: 12, fontWeight: "700" },
+  // Modal
+  modalOverlay:    { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop:   { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,18,50,0.5)" },
+  modalSheet:      { backgroundColor: "#fff", borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: "92%" },
+  modalHandle:     { width: 40, height: 4, backgroundColor: "#e4ebff", borderRadius: 2, alignSelf: "center", marginTop: 12 },
+  modalHeader:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
+  modalTitle:      { fontSize: 17, fontWeight: "800", color: "#1f2a58" },
+  closeBtn:        { width: 32, height: 32, borderRadius: 10, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
+  modalBody:       { padding: 20, paddingBottom: 36 },
+  fieldGroup:      { marginBottom: 12 },
+  fieldLabel:      { color: "#1f2a58", fontWeight: "700", fontSize: 13, marginBottom: 6 },
+  fieldInput:      { backgroundColor: "#f3f7ff", borderRadius: 10, borderWidth: 1, borderColor: "#e4ebff", paddingHorizontal: 12, paddingVertical: 11, color: "#1f2a58", fontSize: 14 },
+  tourPill:        { borderRadius: 10, borderWidth: 1, borderColor: "#dfe7ff", backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 8, maxWidth: 180 },
+  tourPillActive:  { backgroundColor: "#ef4444", borderColor: "#ef4444" },
+  tourPillTxt:     { color: "#6c7fb7", fontSize: 12, fontWeight: "600" },
+  tourPillTxtActive:{ color: "#fff" },
+  previewBox:      { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f3f7ff", borderRadius: 10, padding: 10, marginBottom: 14 },
+  previewLabel:    { color: "#7a8cc2", fontSize: 12 },
+  previewOrig:     { color: "#94a3b8", textDecorationLine: "line-through", fontSize: 13 },
+  previewSale:     { color: "#ef4444", fontWeight: "900", fontSize: 16 },
+  discBadge:       { backgroundColor: "#fee2e2", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  discTxt:         { color: "#ef4444", fontWeight: "800", fontSize: 11 },
+  colorDot:        { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  colorDotActive:  { borderWidth: 2.5, borderColor: "#1f2a58" },
+  createBtn:       { height: 50, borderRadius: 14, backgroundColor: "#ef4444", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  createBtnTxt:    { color: "#fff", fontWeight: "700", fontSize: 15 },
 });

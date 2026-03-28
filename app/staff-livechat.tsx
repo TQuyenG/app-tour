@@ -251,13 +251,29 @@ export default function StaffLivechat() {
   useFocusEffect(useCallback(() => {
   const loadChats = async () => {
     try {
-      const list = await getSharedChatSessions();
-      const mapped = list.map(s => ({ ...s, unread: s.unreadForStaff }));
+      // 1. Lấy dữ liệu từ bộ nhớ dùng chung
+      let list = await getSharedChatSessions();
+
+      // 2. KIỂM TRA: Nếu bộ nhớ trống, hãy nạp dữ liệu mẫu (SEED_CHATS)
+      if (!list || list.length === 0) {
+        list = SEED_CHATS as any;
+      }
+
+      // 3. Map lại dữ liệu để hiển thị unread cho staff
+      const mapped = list.map(s => ({ 
+        ...s, 
+        unread: s.unreadForStaff ?? s.unread // Fallback nếu chưa có unreadForStaff
+      }));
+
       setChats(mapped as any);
-    } catch { setChats([]); }
+    } catch (error) { 
+      console.log("Lỗi tải chat:", error);
+      setChats([]); 
+    }
   };
+
   loadChats();
-  const interval = setInterval(loadChats, 3000);
+  const interval = setInterval(loadChats, 5000); // Tăng lên 5s để tránh lag
   return () => clearInterval(interval);
 }, []));
 

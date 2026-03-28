@@ -11,7 +11,26 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdminTabBar } from "@/components/AdminTabBar";
-import { getSharedChatSessions, type SharedChatSession } from "@/constants/data-store";
+
+// Định nghĩa Type và dữ liệu giả (Mock Data) ngay tại đây
+export type SharedChatSession = {
+  id: string; guestName: string; topic: string; priority: string;
+  bookingRef?: string; tourName?: string; amount?: string;
+  resolved: boolean; unreadForStaff: number; lastTime: string; lastMessage: string;
+  messages: { from: string; text: string; time: string }[];
+};
+
+const MOCK_SESSIONS: SharedChatSession[] = [
+  {
+    id: "1", guestName: "Nguyễn Văn A", topic: "Hỏi về tour Hạ Long", priority: "normal",
+    resolved: false, unreadForStaff: 2, lastTime: "10:30", lastMessage: "Cho mình hỏi thêm...",
+    messages: [
+      { from: "guest", text: "Xin chào", time: "10:28" },
+      { from: "staff", text: "Chào bạn, mình có thể giúp gì?", time: "10:29" },
+      { from: "guest", text: "Cho mình hỏi thêm...", time: "10:30" }
+    ]
+  }
+];
 
 const PRIORITY_COLOR: Record<string, string> = {
   urgent: "#ef4444", normal: "#f59e0b", low: "#10b981",
@@ -28,7 +47,7 @@ export default function AdminLivechatMonitor() {
   const [filterTab,  setFilterTab]  = useState<"all" | "open" | "resolved">("all");
 
   useFocusEffect(useCallback(() => {
-    getSharedChatSessions().then(setSessions);
+    setSessions(MOCK_SESSIONS);
   }, []));
 
   const filtered = sessions.filter(s =>
@@ -79,7 +98,7 @@ export default function AdminLivechatMonitor() {
         </View>
 
         <ScrollView contentContainerStyle={st.msgContent}>
-          {activeSession.messages.map((msg, i) => {
+          {activeSession.messages.map((msg: { from: string; text: string; time: string }, i: number) => {
             const isStaff = msg.from === "staff";
             return (
               <View key={i} style={[st.msgRow, isStaff ? st.msgRowStaff : st.msgRowGuest]}>

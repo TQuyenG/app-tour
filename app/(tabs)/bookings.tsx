@@ -22,25 +22,6 @@ interface GuestBooking {
 
 const STORAGE_KEY = '@guest_bookings';
 
-<<<<<<< Updated upstream
-const STATUS_META: Record<BookingStatus, { label: string; color: string; step: number }> = {
-  // status cũ
-  pending:      { label: 'Chờ thanh toán', color: '#d97706', step: 1 },
-  paid:         { label: 'Đã thanh toán',  color: '#4f7cff', step: 2 },
-  'checked-in': { label: 'Đã check-in',   color: '#a855f7', step: 3 },
-  'on-tour':    { label: 'Đang đi tour',  color: '#2856d6', step: 4 },
-  accepted:     { label: 'Đã xác nhận',   color: '#4f7cff', step: 2 },
-  ongoing:      { label: 'Đang dẫn',      color: '#a855f7', step: 4 },
-  done:         { label: 'Hoàn thành',    color: '#16a34a', step: 5 },
-  completed:    { label: 'Hoàn tất',      color: '#16a34a', step: 5 },
-  cancelled:    { label: 'Đã hủy',        color: '#dc2626', step: 0 },
-  // status mới từ guest_booking_flow.tsx
-  pending_guide:   { label: 'Chờ HDV xác nhận', color: '#d97706', step: 1 },
-  guide_accepted:  { label: 'HDV đã nhận',       color: '#4f7cff', step: 2 },
-  guide_rejected:  { label: 'HDV từ chối',        color: '#dc2626', step: 0 },
-  checked_in:      { label: 'Đã check-in',        color: '#a855f7', step: 3 },
-  on_tour:         { label: 'Đang đi tour',       color: '#2856d6', step: 4 },
-=======
 // ── Ảnh Unsplash theo tourId & tên tour ──
 const TOUR_IMG_MAP: Record<string, string> = {
   't1':  'https://images.unsplash.com/photo-1596178060671-7a80dc8059ea?w=500&q=80',
@@ -55,7 +36,6 @@ const TOUR_IMG_MAP: Record<string, string> = {
   't10': 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&q=80',
   't11': 'https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=500&q=80',
   't12': 'https://images.unsplash.com/photo-1540979388789-6cee28a1cdc9?w=500&q=80',
->>>>>>> Stashed changes
 };
 
 function getBookingImg(tourId: string, tourName: string): string {
@@ -246,15 +226,9 @@ export default function GuestBookingsScreen() {
       {/* ── Segment tabs ── */}
       <View style={st.segmentRow}>
         {[
-<<<<<<< Updated upstream
-          { key: 'upcoming', label: 'Sắp đi',  count: bookings.filter(b => ['pending','paid','accepted','pending_guide','guide_accepted'].includes(b.status)).length },
-          { key: 'active',   label: 'Đang đi', count: bookings.filter(b => ['checked-in','on-tour','ongoing','checked_in','on_tour'].includes(b.status)).length },
-          { key: 'done',     label: 'Hoàn tất', count: bookings.filter(b => ['completed','done','cancelled','guide_rejected'].includes(b.status)).length },
-=======
           { key: 'upcoming', label: 'Sắp đi',  emoji: '✈️', count: bookings.filter(b => ['pending','paid','accepted','pending_guide','guide_accepted'].includes(b.status)).length },
           { key: 'active',   label: 'Đang đi', emoji: '🗺️', count: bookings.filter(b => ['checked-in','on-tour','ongoing','checked_in','on_tour'].includes(b.status)).length },
           { key: 'done',     label: 'Hoàn tất',emoji: '✅', count: bookings.filter(b => ['completed','done','cancelled','guide_rejected'].includes(b.status)).length },
->>>>>>> Stashed changes
         ].map(seg => (
           <TouchableOpacity
             key={seg.key}
@@ -338,18 +312,6 @@ export default function GuestBookingsScreen() {
                 </View>
               </View>
 
-<<<<<<< Updated upstream
-              {action && (
-                <TouchableOpacity
-                  style={st.actionBtn}
-                  onPress={() => router.push({
-                    pathname: `/${action.route}` as any,
-                    params: { bookingId: b.id, resumeStep: action.step },
-                  })}
-                >
-                  <Text style={st.actionTxt}>{action.label}</Text>
-                </TouchableOpacity>
-=======
               {/* ── Timeline ── */}
               {!isCancelled && (
                 <View style={st.timelineWrap}>
@@ -444,7 +406,6 @@ export default function GuestBookingsScreen() {
                     <Text style={st.viewComplaintTxt}>Xem khiếu nại</Text>
                   </TouchableOpacity>
                 </View>
->>>>>>> Stashed changes
               )}
             </View>
           </View>

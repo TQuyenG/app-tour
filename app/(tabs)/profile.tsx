@@ -21,8 +21,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getCurrentUser, logoutAccount, switchRole } from '@/constants/app-accounts';
 import {
-  getSharedChatSessions, guestSendMessage, guestMarkChatRead,
-  guestCreateChatSession, type SharedChatSession,
+  getSharedChatSessions, 
+  staffSendMessage as guestSendMessage, 
+  staffMarkChatRead as guestMarkChatRead,
+  type SharedChatSession,
 } from '@/constants/data-store';
 
 // ─── Types (tự định nghĩa, không import từ shared-data) ──────
