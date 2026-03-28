@@ -1,451 +1,355 @@
 /**
  * app/(tabs)/profile.tsx  –  Profile Guest
- *
- * - Không dùng @/constants/shared-data (tránh lỗi module not found)
- * - Đọc/ghi trực tiếp AsyncStorage: @app_profile
- * - Đọc @app_current_user để biết có role guide không
- * - Dual role: nút "Chuyển sang HDV" hoặc "Đăng ký làm HDV"
- * - Modal edit đầy đủ thông tin + chọn màu avatar
- * - Logout gọi logoutAccount() từ app-accounts
+ * - Đọc dữ liệu Role + Chat 100% từ DB (Loại bỏ dữ liệu tĩnh)
  */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert, FlatList, KeyboardAvoidingView, Modal, Platform,
   ScrollView, StyleSheet, Text, TextInput,
-  TouchableOpacity, View,
+  TouchableOpacity, View, useWindowDimensions
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { getCurrentUser, logoutAccount, switchRole } from '@/constants/app-accounts';
-import {
-  getSharedChatSessions, 
-  staffSendMessage as guestSendMessage, 
-  staffMarkChatRead as guestMarkChatRead,
-  type SharedChatSession,
-} from '@/constants/data-store';
-
-// ─── Types (tự định nghĩa, không import từ shared-data) ──────
 interface GuestProfile {
-  name: string;
-  email: string;
-  phone: string;
-  dob: string;
-  address: string;
-  loyaltyPoints: number;
-  loyaltyTier: string;
-  voucher: string;
-  avatarColor: string;
+  name: string; email: string; phone: string; dob: string;
+  address: string; loyaltyPoints: number; loyaltyTier: string;
+  voucher: string; avatarColor: string;
+}
+
+interface ChatMessage {
+  from: 'staff' | 'guest' | 'guide';
+  text: string; time: string;
+}
+
+interface ChatSession {
+  id: string; topic?: string; guideName?: string; tourName?: string;
+  lastMessage?: string; lastTime?: string; unread: number;
+  color?: string; messages: ChatMessage[];
 }
 
 const DEFAULT_PROFILE: GuestProfile = {
-  name: 'Nguyễn An',
-  email: 'guest1@gmail.com',
-  phone: '0901 234 567',
-  dob: '01/01/1995',
-  address: 'TP. Hồ Chí Minh',
-  loyaltyPoints: 1200,
-  loyaltyTier: 'Loyal',
-  voucher: 'SUMMER2026',
-  avatarColor: '#4f7cff',
+  name: 'Nguyễn An', email: 'guest1@gmail.com', phone: '0901 234 567',
+  dob: '01/01/1995', address: 'TP. Hồ Chí Minh', loyaltyPoints: 1200,
+  loyaltyTier: 'Loyal', voucher: 'SUMMER2026', avatarColor: '#4f7cff',
 };
-// ── THÊM MỚI DỮ LIỆU MẪU Ở ĐÂY (NGOÀI COMPONENT) ──
-const GUIDE_CHAT_SEED = [
-  { id: 'gc1', guideName: 'Phạm Văn Hùng', tourName: 'Tour Núi Bà Đen', lastMsg: 'Chúng tôi xuất phát lúc 6h sáng nhé!', time: '08:30', unread: 1, color: '#10b981',
-    messages: [
-      { from: 'guide', text: 'Xin chào! Tôi là HDV cho tour của bạn.', time: '08:00' },
-      { from: 'guest', text: 'Chào anh, điểm đón ở đâu ạ?', time: '08:20' },
-      { from: 'guide', text: 'Chúng tôi xuất phát lúc 6h sáng nhé! Điểm đón: Cổng Bến xe Miền Đông.', time: '08:30' },
-    ],
-  },
-  { id: 'gc2', guideName: 'Nguyễn Thị Mai', tourName: 'Đà Lạt Mộng Mơ 3N2D', lastMsg: 'Tour bao gồm ăn sáng và ăn trưa ạ.', time: 'Hôm qua', unread: 0, color: '#f59e0b',
-    messages: [
-      { from: 'guest', text: 'Tour có bao gồm ăn tối không ạ?', time: '14:00' },
-      { from: 'guide', text: 'Tour bao gồm ăn sáng và ăn trưa ạ. Ăn tối tự túc nhé bạn.', time: '14:05' },
-    ],
-  },
-];
 
-// ─── AsyncStorage helpers ─────────────────────────────────────
-async function loadProfile(): Promise<GuestProfile> {
-  try {
-    const raw = await AsyncStorage.getItem('@app_profile');
-    return raw ? { ...DEFAULT_PROFILE, ...JSON.parse(raw) } : DEFAULT_PROFILE;
-  } catch {
-    return DEFAULT_PROFILE;
-  }
-}
-
-async function persistProfile(p: GuestProfile): Promise<void> {
-  try {
-    await AsyncStorage.setItem('@app_profile', JSON.stringify(p));
-  } catch {}
-}
-
-// ─── Component ────────────────────────────────────────────────
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const scale = Math.min(width / 375, 1.2);
+  const s = useMemo(() => getStyles(scale), [scale]);
 
   const [profile,      setProfile]      = useState<GuestProfile>(DEFAULT_PROFILE);
   const [modalVisible, setModalVisible] = useState(false);
   const [form,         setForm]         = useState<GuestProfile>(DEFAULT_PROFILE);
   const [saving,       setSaving]       = useState(false);
-  const [currentUser,  setCurrentUser]  = useState<any>(null);
-  const [loaded,       setLoaded]       = useState(false);
+  
+  const [isGuideAlso,  setIsGuideAlso]  = useState(false);
+  const [guideReqStatus, setGuideReqStatus] = useState<'none' | 'pending' | 'rejected'>('none');
+  const [guideReqNote, setGuideReqNote] = useState('');
 
-  // Chat tab state
-  const [activeTab,       setActiveTab]       = useState<'profile' | 'chat_staff' | 'chat_guide'>('profile');
-  const [chatSessions,    setChatSessions]    = useState<SharedChatSession[]>([]);
-  const [activeChatId,    setActiveChatId]    = useState<string | null>(null);
-  const [chatInput,       setChatInput]       = useState('');
+  const [activeTab,    setActiveTab]    = useState<'profile' | 'chat_staff' | 'chat_guide'>('profile');
   const flatRef = useRef<FlatList>(null);
 
-  // ── THÊM MỚI STATE VÀ HÀM CỦA HDV VÀO ĐÂY ──
-  const [guideChatSessions, setGuideChatSessions] = useState(GUIDE_CHAT_SEED);
+  const [staffChatSessions, setStaffChatSessions] = useState<ChatSession[]>([]);
+  const [activeStaffChat, setActiveStaffChat]     = useState<string | null>(null);
+  const [staffChatInput, setStaffChatInput]       = useState('');
+  const [staffMsgs, setStaffMsgs]                 = useState<ChatMessage[]>([]);
+
+  const [guideChatSessions, setGuideChatSessions] = useState<ChatSession[]>([]);
   const [activeGuideChat, setActiveGuideChat]     = useState<string | null>(null);
   const [guideChatInput, setGuideChatInput]       = useState('');
-  const [guideMsgs, setGuideMsgs]                 = useState<any[]>([]);
+  const [guideMsgs, setGuideMsgs]                 = useState<ChatMessage[]>([]);
 
-  const openGuideChat = (session: any) => {
-    setActiveGuideChat(session.id);
-    setGuideMsgs(session.messages || []);
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
-  };
-
-  const sendGuideMsg = () => {
-    if (!guideChatInput.trim() || !activeGuideChat) return;
-    
-    const newMsg = { 
-      from: 'guest', text: guideChatInput.trim(), 
-      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) 
-    };
-
-    setGuideMsgs((prev: any[]) => [...prev, newMsg]);
-
-    setGuideChatSessions((prev: any[]) => prev.map((s: any) => 
-      s.id === activeGuideChat 
-        ? { ...s, lastMsg: guideChatInput.trim(), time: 'Vừa xong', messages: [...(s.messages || []), newMsg] } 
-        : s
-    ));
-
-    setGuideChatInput('');
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
-  };
-
-  // Reload mỗi khi tab được focus
   useFocusEffect(
     useCallback(() => {
-      loadProfile().then(p => {
-        setProfile(p);
-        setForm(p);
-        setLoaded(true);
-      });
-      getCurrentUser().then(u => setCurrentUser(u));
-      getSharedChatSessions().then(sessions => setChatSessions(sessions));
+      const loadData = async () => {
+        try {
+          // 1. TẢI CHAT TỪ LOCAL (Không dùng dữ liệu cứng)
+          const rawStaffChats = await AsyncStorage.getItem('@guest_staff_chats');
+          if (rawStaffChats) setStaffChatSessions(JSON.parse(rawStaffChats));
+          const rawGuideChats = await AsyncStorage.getItem('@guest_guide_chats');
+          if (rawGuideChats) setGuideChatSessions(JSON.parse(rawGuideChats));
+
+          // 2. TẢI THÔNG TIN CÁ NHÂN
+          let currentEmail = '';
+          const rawProfile = await AsyncStorage.getItem('@app_profile');
+          if (rawProfile) {
+            const p = { ...DEFAULT_PROFILE, ...JSON.parse(rawProfile) };
+            setProfile(p); setForm(p);
+            currentEmail = p.email;
+          }
+          
+          // 3. TẢI VÀ KIỂM TRA QUYỀN TRUY CẬP (ROLE) TỪ DATABASE
+          let hasGuideRole = false;
+          let accId = '';
+          
+          // Lấy dữ liệu user hiện tại
+          const rawUser = await AsyncStorage.getItem('@app_current_user');
+          if (rawUser) {
+            const u = JSON.parse(rawUser);
+            accId = u.accountId;
+            if (u.roles && u.roles.includes('guide')) {
+              hasGuideRole = true;
+              setIsGuideAlso(true);
+            }
+          }
+
+          // Kiểm tra db admin requests nếu chưa có quyền guide
+          if (!hasGuideRole) {
+            const rawReqs = await AsyncStorage.getItem('@admin_guide_requests');
+            if (rawReqs) {
+              const reqs = JSON.parse(rawReqs);
+              const myReqs = reqs.filter((r: any) => (accId && r.accountId === accId) || r.email === currentEmail);
+              if (myReqs.length > 0) {
+                const latestReq = myReqs[0]; // Request mới nhất (đã unshift lên đầu)
+                if (latestReq.status === 'pending') {
+                  setGuideReqStatus('pending');
+                } else if (latestReq.status === 'rejected') {
+                  setGuideReqStatus('rejected');
+                  setGuideReqNote(latestReq.adminNote || latestReq.note || 'Hồ sơ chưa đạt yêu cầu hệ thống.');
+                } else if (latestReq.status === 'approved') {
+                  setIsGuideAlso(true);
+                }
+              } else {
+                 setGuideReqStatus('none');
+              }
+            }
+          }
+        } catch (e) {}
+      };
+      loadData();
     }, [])
   );
 
-  // ── Save profile ──────────────────────────────────────────
   const handleSave = async () => {
-    if (!form.name.trim()) {
-      Alert.alert('Lỗi', 'Vui lòng điền họ tên.');
-      return;
-    }
+    if (!form.name.trim()) { Alert.alert('Lỗi', 'Vui lòng điền họ tên.'); return; }
     setSaving(true);
-    await persistProfile(form);
+    await AsyncStorage.setItem('@app_profile', JSON.stringify(form));
     setProfile(form);
     setSaving(false);
     setModalVisible(false);
   };
 
-  // ── Logout ────────────────────────────────────────────────
   const handleLogout = async () => {
-    await logoutAccount();
+    await AsyncStorage.removeItem('@current_user_role');
     router.replace('/login' as any);
   };
 
-  // ── Switch to guide role ──────────────────────────────────
   const handleSwitchToGuide = async () => {
-    if (!currentUser) return;
-    const res = await switchRole(currentUser.accountId, 'guide');
-    if (res.ok) router.replace('/guide-home' as any);
-    else Alert.alert('Lỗi', res.error || 'Không thể chuyển đổi.');
+    await AsyncStorage.setItem('@current_user_role', 'guide');
+    router.replace('/guide-home' as any);
   };
-
-  // ── Derived state ─────────────────────────────────────────
-  const isGuideAlso = currentUser?.roles?.includes('guide') ?? false;
 
   const setField = (key: keyof GuestProfile, value: string | number) =>
     setForm(prev => ({ ...prev, [key]: value }));
 
-  const tierColors: Record<string, string> = {
-    Member: '#7a8cc2', Loyal: '#ffbe40', Gold: '#f59e0b', Platinum: '#a855f7',
-  };
+  const tierColors: Record<string, string> = { Member: '#7a8cc2', Loyal: '#ffbe40', Gold: '#f59e0b', Platinum: '#a855f7' };
   const tierColor = tierColors[profile.loyaltyTier] ?? '#4f7cff';
 
-  // ── Chat handlers ──────────────────────────────────────────
-  const openChat = async (session: SharedChatSession) => {
-    setActiveChatId(session.id);
-    await guestMarkChatRead(session.id);
-    setChatSessions(prev => prev.map(s => s.id === session.id ? { ...s, unread: 0 } : s));
+  const openStaffChat = (session: ChatSession) => {
+    setActiveStaffChat(session.id);
+    setStaffMsgs(session.messages || []);
+    setStaffChatSessions(prev => prev.map(s => s.id === session.id ? { ...s, unread: 0 } : s));
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
   };
 
-  const sendChatMsg = async () => {
-    if (!chatInput.trim() || !activeChatId) return;
-    const text = chatInput.trim();
-    setChatInput('');
-    await guestSendMessage(activeChatId, text);
-    const updated = await getSharedChatSessions();
-    setChatSessions(updated);
+  const sendStaffMsg = async () => {
+    if (!staffChatInput.trim() || !activeStaffChat) return;
+    const newMsg: ChatMessage = { from: 'guest', text: staffChatInput.trim(), time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) };
+    setStaffMsgs(prev => [...prev, newMsg]);
+    
+    const updatedSessions = staffChatSessions.map(s => s.id === activeStaffChat ? { ...s, lastMessage: newMsg.text, lastTime: 'Vừa xong', messages: [...s.messages, newMsg] } : s);
+    setStaffChatSessions(updatedSessions);
+    await AsyncStorage.setItem('@guest_staff_chats', JSON.stringify(updatedSessions));
+    
+    setStaffChatInput('');
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
-  
+  const openGuideChat = (session: ChatSession) => {
+    setActiveGuideChat(session.id);
+    setGuideMsgs(session.messages || []);
+    setGuideChatSessions(prev => prev.map(s => s.id === session.id ? { ...s, unread: 0 } : s));
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
+  };
 
-  // ── Active chat session object ────────────────────────────
-  const activeStaffSession = chatSessions.find(s => s.id === activeChatId);
+  const sendGuideMsg = async () => {
+    if (!guideChatInput.trim() || !activeGuideChat) return;
+    const newMsg: ChatMessage = { from: 'guest', text: guideChatInput.trim(), time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) };
+    setGuideMsgs(prev => [...prev, newMsg]);
+    
+    const updatedSessions = guideChatSessions.map(s => s.id === activeGuideChat ? { ...s, lastMessage: newMsg.text, lastTime: 'Vừa xong', messages: [...s.messages, newMsg] } : s);
+    setGuideChatSessions(updatedSessions);
+    await AsyncStorage.setItem('@guest_guide_chats', JSON.stringify(updatedSessions));
+
+    setGuideChatInput('');
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
+  const activeStaffSession = staffChatSessions.find(s => s.id === activeStaffChat);
   const activeGuideSession = guideChatSessions.find(s => s.id === activeGuideChat);
-  const staffUnreadTotal   = chatSessions.reduce((n, s) => n + s.unread, 0);
-  const guideUnreadTotal   = guideChatSessions.reduce((n, s) => n + s.unread, 0);
+  const staffUnreadTotal   = staffChatSessions.reduce((n, s) => n + (s.unread || 0), 0);
+  const guideUnreadTotal   = guideChatSessions.reduce((n, s) => n + (s.unread || 0), 0);
 
-  // ── Render chat detail (Staff) ────────────────────────────
-  if (activeTab === 'chat_staff' && activeChatId && activeStaffSession) {
+  if (activeTab === 'chat_staff' && activeStaffChat && activeStaffSession) {
     return (
-      <KeyboardAvoidingView style={st.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[st.chatTopBar, { paddingTop: insets.top + 10 }]}>
-          <TouchableOpacity onPress={() => setActiveChatId(null)} style={st.iconBtn}>
-            <Ionicons name="arrow-back" size={22} color="#1f2a58" />
+      <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[s.chatTopBar, { paddingTop: insets.top + Math.round(10 * scale) }]}>
+          <TouchableOpacity onPress={() => setActiveStaffChat(null)} style={s.iconBtn}>
+            <Ionicons name="arrow-back" size={Math.round(22 * scale)} color="#1f2a58" />
           </TouchableOpacity>
-          <View style={[st.chatAvatar, { backgroundColor: '#f59e0b' }]}>
-            <Ionicons name="headset" size={16} color="#fff" />
-          </View>
+          <View style={[s.chatAvatar, { backgroundColor: '#f59e0b' }]}><Ionicons name="headset" size={Math.round(16 * scale)} color="#fff" /></View>
           <View style={{ flex: 1 }}>
-            <Text style={st.chatName}>CSKH - LocalMate</Text>
-            <Text style={st.chatSub}>{activeStaffSession.topic}</Text>
+            <Text style={s.chatName}>CSKH - LocalMate</Text>
+            <Text style={s.chatSub}>{activeStaffSession.topic || "Hỗ trợ khách hàng"}</Text>
           </View>
         </View>
-        <FlatList
-          ref={flatRef}
-          data={activeStaffSession.messages}
-          keyExtractor={(_, i) => String(i)}
-          contentContainerStyle={st.msgListContent}
+        <FlatList ref={flatRef} data={staffMsgs} keyExtractor={(_, i) => String(i)} contentContainerStyle={s.msgListContent}
           renderItem={({ item }) => {
             const isStaff = item.from === 'staff';
             return (
-              <View style={[st.msgRow, isStaff ? st.msgRowOther : st.msgRowSelf]}>
-                {isStaff && <View style={[st.miniAvatar, { backgroundColor: '#f59e0b' }]}><Ionicons name="headset" size={12} color="#fff" /></View>}
-                <View style={isStaff ? st.bubbleColLeft : st.bubbleColRight}>
-                  <View style={[st.bubble, isStaff ? st.bubbleLeft : st.bubbleRight]}>
-                    <Text style={[st.bubbleTxt, isStaff ? st.bubbleTxtLeft : st.bubbleTxtRight]}>{item.text}</Text>
-                  </View>
-                  <Text style={[st.timeStamp, isStaff ? { alignSelf: 'flex-start' } : { alignSelf: 'flex-end' }]}>{item.time}</Text>
+              <View style={[s.msgRow, isStaff ? s.msgRowOther : s.msgRowSelf]}>
+                {isStaff && <View style={[s.miniAvatar, { backgroundColor: '#f59e0b' }]}><Ionicons name="headset" size={Math.round(12 * scale)} color="#fff" /></View>}
+                <View style={isStaff ? s.bubbleColLeft : s.bubbleColRight}>
+                  <View style={[s.bubble, isStaff ? s.bubbleLeft : s.bubbleRight]}><Text style={[s.bubbleTxt, isStaff ? s.bubbleTxtLeft : s.bubbleTxtRight]}>{item.text}</Text></View>
+                  <Text style={[s.timeStamp, isStaff ? { alignSelf: 'flex-start' } : { alignSelf: 'flex-end' }]}>{item.time}</Text>
                 </View>
               </View>
             );
           }}
         />
-        <View style={[st.inputBar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 10 }]}>
-          <TextInput style={st.chatInput} value={chatInput} onChangeText={setChatInput} placeholder="Nhắn tin cho CSKH..." placeholderTextColor="#b0bdd8" multiline />
-          <TouchableOpacity style={[st.sendBtn, !chatInput.trim() && st.sendBtnOff]} onPress={sendChatMsg} disabled={!chatInput.trim()}>
-            <Ionicons name="send" size={16} color="#fff" />
-          </TouchableOpacity>
+        <View style={[s.inputBar, { paddingBottom: Math.max(insets.bottom, Math.round(10 * scale)) }]}>
+          <TextInput style={s.chatInput} value={staffChatInput} onChangeText={setStaffChatInput} placeholder="Nhắn tin cho CSKH..." placeholderTextColor="#b0bdd8" multiline />
+          <TouchableOpacity style={[s.sendBtn, !staffChatInput.trim() && s.sendBtnOff]} onPress={sendStaffMsg} disabled={!staffChatInput.trim()}><Ionicons name="send" size={Math.round(16 * scale)} color="#fff" /></TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     );
   }
 
-  // ── Render chat detail (Guide) ────────────────────────────
   if (activeTab === 'chat_guide' && activeGuideChat && activeGuideSession) {
     return (
-      <KeyboardAvoidingView style={st.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[st.chatTopBar, { paddingTop: insets.top + 10 }]}>
-          <TouchableOpacity onPress={() => setActiveGuideChat(null)} style={st.iconBtn}>
-            <Ionicons name="arrow-back" size={22} color="#1f2a58" />
+      <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[s.chatTopBar, { paddingTop: insets.top + Math.round(10 * scale) }]}>
+          <TouchableOpacity onPress={() => setActiveGuideChat(null)} style={s.iconBtn}>
+            <Ionicons name="arrow-back" size={Math.round(22 * scale)} color="#1f2a58" />
           </TouchableOpacity>
-          <View style={[st.chatAvatar, { backgroundColor: activeGuideSession.color }]}>
-            <Text style={st.chatAvatarTxt}>{activeGuideSession.guideName.charAt(0)}</Text>
-          </View>
+          <View style={[s.chatAvatar, { backgroundColor: activeGuideSession.color || '#4f7cff' }]}><Text style={s.chatAvatarTxt}>{(activeGuideSession.guideName || 'U').charAt(0)}</Text></View>
           <View style={{ flex: 1 }}>
-            <Text style={st.chatName}>{activeGuideSession.guideName}</Text>
-            <Text style={st.chatSub}>{activeGuideSession.tourName}</Text>
+            <Text style={s.chatName}>{activeGuideSession.guideName}</Text>
+            <Text style={s.chatSub}>{activeGuideSession.tourName || "Tour hệ thống"}</Text>
           </View>
         </View>
-        <FlatList
-          ref={flatRef}
-          data={guideMsgs}
-          keyExtractor={(_, i) => String(i)}
-          contentContainerStyle={st.msgListContent}
+        <FlatList ref={flatRef} data={guideMsgs} keyExtractor={(_, i) => String(i)} contentContainerStyle={s.msgListContent}
           renderItem={({ item }) => {
             const isGuide = item.from === 'guide';
             return (
-              <View style={[st.msgRow, isGuide ? st.msgRowOther : st.msgRowSelf]}>
-                {isGuide && <View style={[st.miniAvatar, { backgroundColor: activeGuideSession.color }]}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{activeGuideSession.guideName.charAt(0)}</Text></View>}
-                <View style={isGuide ? st.bubbleColLeft : st.bubbleColRight}>
-                  <View style={[st.bubble, isGuide ? st.bubbleLeft : st.bubbleRight]}>
-                    <Text style={[st.bubbleTxt, isGuide ? st.bubbleTxtLeft : st.bubbleTxtRight]}>{item.text}</Text>
-                  </View>
-                  <Text style={[st.timeStamp, isGuide ? { alignSelf: 'flex-start' } : { alignSelf: 'flex-end' }]}>{item.time}</Text>
+              <View style={[s.msgRow, isGuide ? s.msgRowOther : s.msgRowSelf]}>
+                {isGuide && <View style={[s.miniAvatar, { backgroundColor: activeGuideSession.color || '#4f7cff' }]}><Text style={{ color: '#fff', fontSize: Math.round(10 * scale), fontWeight: '800' }}>{(activeGuideSession.guideName || 'U').charAt(0)}</Text></View>}
+                <View style={isGuide ? s.bubbleColLeft : s.bubbleColRight}>
+                  <View style={[s.bubble, isGuide ? s.bubbleLeft : s.bubbleRight]}><Text style={[s.bubbleTxt, isGuide ? s.bubbleTxtLeft : s.bubbleTxtRight]}>{item.text}</Text></View>
+                  <Text style={[s.timeStamp, isGuide ? { alignSelf: 'flex-start' } : { alignSelf: 'flex-end' }]}>{item.time}</Text>
                 </View>
               </View>
             );
           }}
         />
-        <View style={[st.inputBar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 10 }]}>
-          <TextInput style={st.chatInput} value={guideChatInput} onChangeText={setGuideChatInput} placeholder="Nhắn tin cho HDV..." placeholderTextColor="#b0bdd8" multiline />
-          <TouchableOpacity style={[st.sendBtn, !guideChatInput.trim() && st.sendBtnOff]} onPress={sendGuideMsg} disabled={!guideChatInput.trim()}>
-            <Ionicons name="send" size={16} color="#fff" />
-          </TouchableOpacity>
+        <View style={[s.inputBar, { paddingBottom: Math.max(insets.bottom, Math.round(10 * scale)) }]}>
+          <TextInput style={s.chatInput} value={guideChatInput} onChangeText={setGuideChatInput} placeholder="Nhắn tin cho HDV..." placeholderTextColor="#b0bdd8" multiline />
+          <TouchableOpacity style={[s.sendBtn, !guideChatInput.trim() && s.sendBtnOff]} onPress={sendGuideMsg} disabled={!guideChatInput.trim()}><Ionicons name="send" size={Math.round(16 * scale)} color="#fff" /></TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     );
   }
 
   return (
-    <ScrollView
-      style={st.screen}
-      contentContainerStyle={[st.content, { paddingTop: insets.top + 14, paddingBottom: 100 }]}>
+    <ScrollView style={s.screen} contentContainerStyle={[s.content, { paddingTop: insets.top + Math.round(14 * scale), paddingBottom: Math.round(100 * scale) }]}>
+      <Text style={s.title}>Tài khoản</Text>
 
-      <Text style={st.title}>Tài khoản</Text>
-
-      {/* ── Tab switcher ── */}
-      <View style={st.tabRow}>
+      <View style={s.tabRow}>
         {([
           { key: 'profile',    label: 'Hồ sơ',    icon: 'person-outline' },
-          { key: 'chat_staff', label: 'CSKH',      icon: 'headset-outline', badge: staffUnreadTotal },
-          { key: 'chat_guide', label: 'HDV',        icon: 'map-outline',     badge: guideUnreadTotal },
+          { key: 'chat_staff', label: 'CSKH',     icon: 'headset-outline', badge: staffUnreadTotal },
+          { key: 'chat_guide', label: 'HDV',      icon: 'map-outline',     badge: guideUnreadTotal },
         ] as const).map(tab => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[st.tabBtn, activeTab === tab.key && st.tabBtnActive]}
-            onPress={() => setActiveTab(tab.key)}>
-            <Ionicons name={tab.icon as any} size={15} color={activeTab === tab.key ? '#4f7cff' : '#7a8cc2'} />
-            <Text style={[st.tabBtnTxt, activeTab === tab.key && st.tabBtnTxtActive]}>{tab.label}</Text>
-            {'badge' in tab && (tab.badge ?? 0) > 0 && (
-              <View style={st.tabBadge}><Text style={st.tabBadgeTxt}>{(tab as any).badge}</Text></View>
-            )}
+          <TouchableOpacity key={tab.key} style={[s.tabBtn, activeTab === tab.key && s.tabBtnActive]} onPress={() => setActiveTab(tab.key)}>
+            <Ionicons name={tab.icon as any} size={Math.round(15 * scale)} color={activeTab === tab.key ? '#4f7cff' : '#7a8cc2'} />
+            <Text style={[s.tabBtnTxt, activeTab === tab.key && s.tabBtnTxtActive]}>{tab.label}</Text>
+            {'badge' in tab && (tab.badge ?? 0) > 0 && <View style={s.tabBadge}><Text style={s.tabBadgeTxt}>{(tab as any).badge}</Text></View>}
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* ── TAB: Chat CSKH ── */}
       {activeTab === 'chat_staff' && (
         <View>
-          {chatSessions.length === 0 && (
-            <View style={st.emptyChat}>
-              <Ionicons name="chatbubbles-outline" size={40} color="#c0cbe8" />
-              <Text style={st.emptyChatTxt}>Chưa có cuộc trò chuyện nào</Text>
-            </View>
-          )}
-          {chatSessions.map(session => (
-            <TouchableOpacity key={session.id} style={[st.chatCard, session.unread > 0 && st.chatCardUnread]} onPress={() => openChat(session)} activeOpacity={0.85}>
-              <View style={[st.chatCardAvatar, { backgroundColor: '#f59e0b' }]}>
-                <Ionicons name="headset" size={20} color="#fff" />
-              </View>
+          {staffChatSessions.length === 0 && <View style={s.emptyChat}><Ionicons name="chatbubbles-outline" size={Math.round(48 * scale)} color="#cbd5e1" style={{marginBottom: 10}} /><Text style={s.emptyChatTxt}>Chưa có cuộc trò chuyện nào.</Text></View>}
+          {staffChatSessions.map(session => (
+            <TouchableOpacity key={session.id} style={[s.chatCard, session.unread > 0 && s.chatCardUnread]} onPress={() => openStaffChat(session)} activeOpacity={0.85}>
+              <View style={[s.chatCardAvatar, { backgroundColor: '#f59e0b' }]}><Ionicons name="headset" size={Math.round(20 * scale)} color="#fff" /></View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={st.chatCardName} numberOfLines={1}>CSKH - {session.topic}</Text>
-                  <Text style={st.chatCardTime}>{session.lastTime}</Text>
-                </View>
-                <Text style={[st.chatCardLast, session.unread > 0 && { color: '#1f2a58', fontWeight: '700' }]} numberOfLines={1}>{session.lastMessage}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={s.chatCardName} numberOfLines={1}>CSKH - {session.topic || "Hỗ trợ"}</Text><Text style={s.chatCardTime}>{session.lastTime}</Text></View>
+                <Text style={[s.chatCardLast, session.unread > 0 && { color: '#1f2a58', fontWeight: '700' }]} numberOfLines={1}>{session.lastMessage}</Text>
               </View>
-              {session.unread > 0 && <View style={st.chatUnreadDot}><Text style={st.chatUnreadTxt}>{session.unread}</Text></View>}
+              {session.unread > 0 && <View style={s.chatUnreadDot}><Text style={s.chatUnreadTxt}>{session.unread}</Text></View>}
             </TouchableOpacity>
           ))}
         </View>
       )}
 
-      {/* ── TAB: Chat HDV ── */}
       {activeTab === 'chat_guide' && (
         <View>
+          {guideChatSessions.length === 0 && <View style={s.emptyChat}><Ionicons name="chatbubbles-outline" size={Math.round(48 * scale)} color="#cbd5e1" style={{marginBottom: 10}} /><Text style={s.emptyChatTxt}>Chưa có cuộc trò chuyện nào.</Text></View>}
           {guideChatSessions.map(session => (
-            <TouchableOpacity key={session.id} style={[st.chatCard, session.unread > 0 && st.chatCardUnread]} onPress={() => openGuideChat(session)} activeOpacity={0.85}>
-              <View style={[st.chatCardAvatar, { backgroundColor: session.color }]}>
-                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18 }}>{session.guideName.charAt(0)}</Text>
-              </View>
+            <TouchableOpacity key={session.id} style={[s.chatCard, session.unread > 0 && s.chatCardUnread]} onPress={() => openGuideChat(session)} activeOpacity={0.85}>
+              <View style={[s.chatCardAvatar, { backgroundColor: session.color || '#4f7cff' }]}><Text style={{ color: '#fff', fontWeight: '800', fontSize: Math.round(18 * scale) }}>{(session.guideName || 'U').charAt(0)}</Text></View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={st.chatCardName} numberOfLines={1}>{session.guideName}</Text>
-                  <Text style={st.chatCardTime}>{session.time}</Text>
-                </View>
-                <Text style={st.chatCardSub} numberOfLines={1}>{session.tourName}</Text>
-                <Text style={[st.chatCardLast, session.unread > 0 && { color: '#1f2a58', fontWeight: '700' }]} numberOfLines={1}>{session.lastMsg}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={s.chatCardName} numberOfLines={1}>{session.guideName}</Text><Text style={s.chatCardTime}>{session.lastTime}</Text></View>
+                <Text style={s.chatCardSub} numberOfLines={1}>{session.tourName}</Text>
+                <Text style={[s.chatCardLast, session.unread > 0 && { color: '#1f2a58', fontWeight: '700' }]} numberOfLines={1}>{session.lastMessage}</Text>
               </View>
-              {session.unread > 0 && <View style={st.chatUnreadDot}><Text style={st.chatUnreadTxt}>{session.unread}</Text></View>}
+              {session.unread > 0 && <View style={s.chatUnreadDot}><Text style={s.chatUnreadTxt}>{session.unread}</Text></View>}
             </TouchableOpacity>
           ))}
         </View>
       )}
 
-      {/* ── TAB: Profile ── */}
       {activeTab === 'profile' && <>
-
-      {/* ── Profile card ── */}
-      <View style={st.profileCard}>
-        <View style={[st.avatar, { backgroundColor: profile.avatarColor }]}>
-          <Text style={st.avatarInitial}>{(profile.name || 'U').trim().charAt(0).toUpperCase()}</Text>
+      <View style={s.profileCard}>
+        <View style={[s.avatar, { backgroundColor: profile.avatarColor }]}><Text style={s.avatarInitial}>{(profile.name || 'U').trim().charAt(0).toUpperCase()}</Text></View>
+        <View style={s.profileInfo}>
+          <Text style={s.name}>{profile.name}</Text>
+          <Text style={s.email}>{profile.email}</Text>
+          {!!profile.phone && <Text style={s.phone}>{profile.phone}</Text>}
         </View>
-        <View style={st.profileInfo}>
-          <Text style={st.name}>{profile.name}</Text>
-          <Text style={st.email}>{profile.email}</Text>
-          {!!profile.phone && <Text style={st.phone}>{profile.phone}</Text>}
-        </View>
-        <TouchableOpacity onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={22} color="#7a8cc2" />
-        </TouchableOpacity>
+        <TouchableOpacity onPress={handleLogout}><Ionicons name="log-out-outline" size={Math.round(22 * scale)} color="#7a8cc2" /></TouchableOpacity>
       </View>
 
-      {/* ── Loyalty card ── */}
-      <View style={st.crmCard}>
-        <View style={st.crmRow}>
-          <Text style={st.crmTitle}>Điểm tích lũy</Text>
-          <Text style={[st.crmPoints, { color: '#4f7cff' }]}>
-            {profile.loyaltyPoints.toLocaleString('vi-VN')} điểm
-          </Text>
-        </View>
-        <View style={st.crmRow}>
-          <Text style={st.crmMeta}>Cấp thành viên</Text>
-          <View style={[st.tierBadge, { backgroundColor: tierColor + '22' }]}>
-            <Text style={[st.tierTxt, { color: tierColor }]}>{profile.loyaltyTier}</Text>
-          </View>
+      <View style={s.crmCard}>
+        <View style={s.crmRow}><Text style={s.crmTitle}>Điểm tích lũy</Text><Text style={[s.crmPoints, { color: '#4f7cff' }]}>{profile.loyaltyPoints.toLocaleString('vi-VN')} điểm</Text></View>
+        <View style={s.crmRow}>
+          <Text style={s.crmMeta}>Cấp thành viên</Text>
+          <View style={[s.tierBadge, { backgroundColor: tierColor + '22' }]}><Text style={[s.tierTxt, { color: tierColor }]}>{profile.loyaltyTier}</Text></View>
         </View>
         {!!profile.voucher && (
-          <View style={st.voucherRow}>
-            <Ionicons name="ticket-outline" size={14} color="#4f7cff" />
-            <Text style={st.voucherTxt}>
-              Voucher: <Text style={st.voucherCode}>{profile.voucher}</Text>
-            </Text>
-          </View>
+          <View style={s.voucherRow}><Ionicons name="ticket-outline" size={Math.round(14 * scale)} color="#4f7cff" /><Text style={s.voucherTxt}>Voucher: <Text style={s.voucherCode}>{profile.voucher}</Text></Text></View>
         )}
-        <View style={st.progressWrap}>
-          <View style={st.progressBg}>
-            <View
-              style={[
-                st.progressFill,
-                { width: `${Math.min((profile.loyaltyPoints % 1000) / 10, 100)}%` as any },
-              ]}
-            />
-          </View>
-          <Text style={st.progressHint}>
-            {1000 - (profile.loyaltyPoints % 1000)} điểm đến tier tiếp theo
-          </Text>
+        <View style={s.progressWrap}>
+          <View style={s.progressBg}><View style={[s.progressFill, { width: `${Math.min((profile.loyaltyPoints % 1000) / 10, 100)}%` as any }]} /></View>
+          <Text style={s.progressHint}>{1000 - (profile.loyaltyPoints % 1000)} điểm đến tier tiếp theo</Text>
         </View>
       </View>
 
-      {/* ── Edit button ── */}
-      <TouchableOpacity
-        style={st.editBtn}
-        onPress={() => { setForm(profile); setModalVisible(true); }}>
-        <Ionicons name="create-outline" size={17} color="#4f7cff" />
-        <Text style={st.editBtnTxt}>Chỉnh sửa thông tin cá nhân</Text>
+      <TouchableOpacity style={s.editBtn} onPress={() => { setForm(profile); setModalVisible(true); }}>
+        <Ionicons name="create-outline" size={Math.round(17 * scale)} color="#4f7cff" />
+        <Text style={s.editBtnTxt}>Chỉnh sửa thông tin cá nhân</Text>
       </TouchableOpacity>
 
-      {/* ── Menu items ── */}
       {([
-        { href: '/guest_chat_center',   icon: 'chatbubbles-outline',   label: 'Live Chat (Hỗ trợ)',      color: '#f59e0b' }, // <-- THÊM DÒNG NÀY
+        { href: '/guest_chat_center',   icon: 'chatbubbles-outline',   label: 'Live Chat (Hỗ trợ)',      color: '#f59e0b' },
         { href: '/guest_notifications', icon: 'notifications-outline', label: 'Thông báo',               color: '#4f7cff' },
         { href: '/guest_favorites',     icon: 'heart-outline',         label: 'Tour yêu thích',          color: '#ec4899' },
         { href: '/bookings',            icon: 'receipt-outline',       label: 'Lịch sử đặt tour',       color: '#2856d6' },
@@ -455,167 +359,89 @@ export default function ProfileScreen() {
         { href: '/guest_complaints',    icon: 'warning-outline',       label: 'Khiếu nại & Tranh chấp', color: '#dc2626' },
         { href: '/guest_booking_flow',  icon: 'map-outline',           label: 'Đặt tour mới',            color: '#06b6d4' },
       ] as const).map(item => (
-        <TouchableOpacity
-          key={item.href}
-          style={st.menuItem}
-          onPress={() => router.push(item.href as any)}>
-          <View style={[st.menuIcon, { backgroundColor: (item as any).color + '18' }]}>
-            <Ionicons name={item.icon} size={20} color={(item as any).color} />
-          </View>
-          <Text style={st.menuText}>{item.label}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />
+        <TouchableOpacity key={item.href} style={s.menuItem} onPress={() => router.push(item.href as any)}>
+          <View style={[s.menuIcon, { backgroundColor: (item as any).color + '18' }]}><Ionicons name={item.icon} size={Math.round(20 * scale)} color={(item as any).color} /></View>
+          <Text style={s.menuText}>{item.label}</Text>
+          <Ionicons name="chevron-forward" size={Math.round(16 * scale)} color="#c0cbe8" />
         </TouchableOpacity>
       ))}
 
-      {/* ── Dual role card ── */}
-      <View style={st.dualCard}>
-        <Text style={st.dualTitle}>Vai trò & Tài khoản</Text>
+      {/* DUAL ROLE: Cập nhật giao diện tự động theo trạng thái Admin */}
+      <View style={s.dualCard}>
+        <Text style={s.dualTitle}>Vai trò & Tài khoản</Text>
         {isGuideAlso ? (
-          <TouchableOpacity style={st.dualRow} onPress={handleSwitchToGuide}>
-            <View style={[st.dualIcon, { backgroundColor: '#edf9f0' }]}>
-              <Ionicons name="map-outline" size={20} color="#16a34a" />
-            </View>
+          <TouchableOpacity style={s.dualRow} onPress={handleSwitchToGuide}>
+            <View style={[s.dualIcon, { backgroundColor: '#edf9f0' }]}><Ionicons name="map-outline" size={Math.round(20 * scale)} color="#16a34a" /></View>
+            <View style={{ flex: 1 }}><Text style={s.dualLabel}>Chuyển sang tài khoản HDV</Text><Text style={s.dualSub}>Quản lý lịch, nhận tour, thu nhập</Text></View>
+            <Ionicons name="chevron-forward" size={Math.round(16 * scale)} color="#c0cbe8" />
+          </TouchableOpacity>
+        ) : guideReqStatus === 'pending' ? (
+          <View style={s.dualRow}>
+            <View style={[s.dualIcon, { backgroundColor: '#fffbeb' }]}><Ionicons name="time-outline" size={Math.round(20 * scale)} color="#d97706" /></View>
             <View style={{ flex: 1 }}>
-              <Text style={st.dualLabel}>Chuyển sang tài khoản HDV</Text>
-              <Text style={st.dualSub}>Quản lý lịch, nhận tour, thu nhập</Text>
+              <Text style={s.dualLabel}>Đang chờ xét duyệt HDV</Text>
+              <Text style={s.dualSub}>Hồ sơ của bạn đang được Admin kiểm tra.</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />
+          </View>
+        ) : guideReqStatus === 'rejected' ? (
+          <TouchableOpacity style={s.dualRow} onPress={() => router.push('/guest-become-guide' as any)}>
+            <View style={[s.dualIcon, { backgroundColor: '#fef2f2' }]}><Ionicons name="close-circle-outline" size={Math.round(20 * scale)} color="#ef4444" /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.dualLabel, { color: '#ef4444' }]}>Hồ sơ HDV bị từ chối</Text>
+              <Text style={[s.dualSub, { color: '#ef4444', fontStyle: 'italic' }]}>Lý do: {guideReqNote}</Text>
+              <Text style={{ color: '#4f7cff', fontWeight: '800', marginTop: Math.round(4 * scale), fontSize: Math.round(12 * scale) }}>Nhấn để đăng ký lại</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={Math.round(16 * scale)} color="#c0cbe8" />
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity
-            style={st.dualRow}
-            onPress={() => router.push('/guest-become-guide' as any)}>
-            <View style={[st.dualIcon, { backgroundColor: '#edf2ff' }]}>
-              <Ionicons name="person-add-outline" size={20} color="#4f7cff" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={st.dualLabel}>Đăng ký làm Hướng dẫn viên</Text>
-              <Text style={st.dualSub}>Kiếm thu nhập từ đam mê du lịch</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />
+          <TouchableOpacity style={s.dualRow} onPress={() => router.push('/guest-become-guide' as any)}>
+            <View style={[s.dualIcon, { backgroundColor: '#edf2ff' }]}><Ionicons name="person-add-outline" size={Math.round(20 * scale)} color="#4f7cff" /></View>
+            <View style={{ flex: 1 }}><Text style={s.dualLabel}>Đăng ký làm Hướng dẫn viên</Text><Text style={s.dualSub}>Kiếm thu nhập từ đam mê du lịch</Text></View>
+            <Ionicons name="chevron-forward" size={Math.round(16 * scale)} color="#c0cbe8" />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* ── Logout ── */}
-      <TouchableOpacity style={st.logoutBtn} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-        <Text style={st.logoutTxt}>Đăng xuất</Text>
+      <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
+        <Ionicons name="log-out-outline" size={Math.round(18 * scale)} color="#ef4444" />
+        <Text style={s.logoutTxt}>Đăng xuất khỏi thiết bị</Text>
       </TouchableOpacity>
+      </>}
 
-      </> /* end activeTab === 'profile' */}
-
-      {/* ── Edit Modal ── */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setModalVisible(false)}>
-        <KeyboardAvoidingView
-          style={st.overlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <TouchableOpacity
-            style={st.backdrop}
-            activeOpacity={1}
-            onPress={() => setModalVisible(false)}
-          />
-          <View style={st.sheet}>
-            <View style={st.handle} />
-            <View style={st.mheader}>
-              <Text style={st.mtitle}>Chỉnh sửa hồ sơ</Text>
-              <TouchableOpacity
-                onPress={() => setModalVisible(false)}
-                style={st.closeBtn}>
-                <Ionicons name="close" size={20} color="#7a8cc2" />
-              </TouchableOpacity>
+      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={() => setModalVisible(false)} />
+          <View style={s.sheet}>
+            <View style={s.handle} />
+            <View style={s.mheader}>
+              <Text style={s.mtitle}>Chỉnh sửa hồ sơ</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={s.closeBtn}><Ionicons name="close" size={Math.round(20 * scale)} color="#7a8cc2" /></TouchableOpacity>
             </View>
-
-            <ScrollView
-              contentContainerStyle={st.mbody}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled">
-
-              {/* Avatar color picker */}
-              <Label t="Màu avatar" />
-              <View style={st.colorRow}>
+            <ScrollView contentContainerStyle={s.mbody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={s.formLabel}>Màu avatar</Text>
+              <View style={s.colorRow}>
                 {['#4f7cff','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899'].map(c => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[st.colorDot, { backgroundColor: c }, form.avatarColor === c && st.colorDotActive]}
-                    onPress={() => setField('avatarColor', c)}>
-                    {form.avatarColor === c && (
-                      <Ionicons name="checkmark" size={14} color="#fff" />
-                    )}
+                  <TouchableOpacity key={c} style={[s.colorDot, { backgroundColor: c }, form.avatarColor === c && s.colorDotActive]} onPress={() => setField('avatarColor', c)}>
+                    {form.avatarColor === c && <Ionicons name="checkmark" size={Math.round(14 * scale)} color="#fff" />}
                   </TouchableOpacity>
                 ))}
               </View>
-
-              <Label t="Họ và tên *" />
-              <TextInput
-                style={st.input}
-                value={form.name}
-                onChangeText={v => setField('name', v)}
-                placeholder="Nguyễn Văn A"
-                placeholderTextColor="#b0bdd8"
-              />
-
-              <Label t="Email" />
-              <TextInput
-                style={st.input}
-                value={form.email}
-                onChangeText={v => setField('email', v)}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholderTextColor="#b0bdd8"
-              />
-
-              <Label t="Số điện thoại" />
-              <TextInput
-                style={st.input}
-                value={form.phone}
-                onChangeText={v => setField('phone', v)}
-                keyboardType="phone-pad"
-                placeholderTextColor="#b0bdd8"
-              />
-
-              <Label t="Ngày sinh" />
-              <TextInput
-                style={st.input}
-                value={form.dob}
-                onChangeText={v => setField('dob', v)}
-                placeholder="VD: 01/01/1995"
-                placeholderTextColor="#b0bdd8"
-              />
-
-              <Label t="Địa chỉ" />
-              <TextInput
-                style={st.input}
-                value={form.address}
-                onChangeText={v => setField('address', v)}
-                placeholder="VD: TP. Hồ Chí Minh"
-                placeholderTextColor="#b0bdd8"
-              />
-
-              <Label t="Voucher" />
-              <TextInput
-                style={st.input}
-                value={form.voucher}
-                onChangeText={v => setField('voucher', v.toUpperCase())}
-                autoCapitalize="characters"
-                placeholder="VD: SUMMER2026"
-                placeholderTextColor="#b0bdd8"
-              />
-
-              <TouchableOpacity
-                style={[st.saveBtn, saving && { opacity: 0.6 }]}
-                onPress={handleSave}
-                disabled={saving}>
-                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                <Text style={st.saveBtnTxt}>
-                  {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
-                </Text>
+              <Text style={s.formLabel}>Họ và tên *</Text>
+              <TextInput style={s.input} value={form.name} onChangeText={v => setField('name', v)} placeholder="Nguyễn Văn A" placeholderTextColor="#b0bdd8" />
+              <Text style={s.formLabel}>Email</Text>
+              <TextInput style={s.input} value={form.email} onChangeText={v => setField('email', v)} keyboardType="email-address" autoCapitalize="none" placeholderTextColor="#b0bdd8" />
+              <Text style={s.formLabel}>Số điện thoại</Text>
+              <TextInput style={s.input} value={form.phone} onChangeText={v => setField('phone', v)} keyboardType="phone-pad" placeholderTextColor="#b0bdd8" />
+              <Text style={s.formLabel}>Ngày sinh</Text>
+              <TextInput style={s.input} value={form.dob} onChangeText={v => setField('dob', v)} placeholder="VD: 01/01/1995" placeholderTextColor="#b0bdd8" />
+              <Text style={s.formLabel}>Địa chỉ</Text>
+              <TextInput style={s.input} value={form.address} onChangeText={v => setField('address', v)} placeholder="VD: TP. Hồ Chí Minh" placeholderTextColor="#b0bdd8" />
+              <Text style={s.formLabel}>Voucher</Text>
+              <TextInput style={s.input} value={form.voucher} onChangeText={v => setField('voucher', v.toUpperCase())} autoCapitalize="characters" placeholder="VD: SUMMER2026" placeholderTextColor="#b0bdd8" />
+              <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
+                <Ionicons name="checkmark-circle-outline" size={Math.round(18 * scale)} color="#fff" /><Text style={s.saveBtnTxt}>{saving ? 'Đang lưu...' : 'Lưu thay đổi'}</Text>
               </TouchableOpacity>
-              <View style={{ height: 24 }} />
+              <View style={{ height: Math.round(24 * scale) }} />
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -624,121 +450,102 @@ export default function ProfileScreen() {
   );
 }
 
-// ─── Small helpers ────────────────────────────────────────────
-const Label = ({ t }: { t: string }) => <Text style={st.formLabel}>{t}</Text>;
-
-// ─── Styles ───────────────────────────────────────────────────
-const st = StyleSheet.create({
-  screen:  { flex: 1, backgroundColor: '#f3f7ff' },
-  content: { padding: 18 },
-  title:   { color: '#1f2a58', fontSize: 26, fontWeight: '700', marginBottom: 14 },
-
-  profileCard: {
-    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-    borderColor: '#e4ebff', padding: 14, flexDirection: 'row',
-    alignItems: 'center', gap: 12, marginBottom: 14,
-  },
-  avatar:        { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { color: '#fff', fontSize: 22, fontWeight: '800' },
-  profileInfo:   { flex: 1 },
-  name:          { color: '#1f2a58', fontWeight: '700', fontSize: 16 },
-  email:         { color: '#7a8cc2', marginTop: 3, fontSize: 13 },
-  phone:         { color: '#5f73a9', marginTop: 2, fontSize: 12 },
-
-  crmCard:      { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e4ebff', padding: 16, marginBottom: 14, gap: 10 },
-  crmRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  crmTitle:     { color: '#1f2a58', fontWeight: '700', fontSize: 14 },
-  crmPoints:    { fontWeight: '800', fontSize: 16 },
-  crmMeta:      { color: '#7a8cc2', fontSize: 13 },
-  tierBadge:    { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  tierTxt:      { fontWeight: '800', fontSize: 13 },
-  voucherRow:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  voucherTxt:   { color: '#7a8cc2', fontSize: 13 },
-  voucherCode:  { color: '#4f7cff', fontWeight: '700' },
-  progressWrap: { gap: 5 },
-  progressBg:   { height: 5, backgroundColor: '#e4ebff', borderRadius: 4, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#4f7cff', borderRadius: 4 },
-  progressHint: { color: '#7a8cc2', fontSize: 11 },
-
-  editBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1.5, borderColor: '#dfe7ff', paddingVertical: 12, marginBottom: 18 },
-  editBtnTxt: { color: '#4f7cff', fontWeight: '700', fontSize: 14 },
-
-  menuItem: { marginBottom: 10, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e4ebff', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#edf2ff', alignItems: 'center', justifyContent: 'center' },
-  menuText: { color: '#1f2a58', fontWeight: '600', flex: 1 },
-
-  dualCard:  { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e4ebff', padding: 14, marginBottom: 12 },
-  dualTitle: { color: '#1f2a58', fontWeight: '700', marginBottom: 10 },
-  dualRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
-  dualIcon:  { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  dualLabel: { color: '#1f2a58', fontWeight: '700', fontSize: 14 },
-  dualSub:   { color: '#7a8cc2', fontSize: 12, marginTop: 2 },
-
-  logoutBtn: { marginTop: 6, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: '#fee2e2', padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  logoutTxt: { color: '#ef4444', fontWeight: '700', fontSize: 15 },
-
-  overlay:  { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(10,18,50,0.45)' },
-  sheet:    { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '90%' },
-  handle:   { width: 40, height: 4, backgroundColor: '#e4ebff', borderRadius: 2, alignSelf: 'center', marginTop: 12 },
-  mheader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#f0f4ff' },
-  mtitle:   { fontSize: 17, fontWeight: '800', color: '#1f2a58' },
-  closeBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#f3f7ff', alignItems: 'center', justifyContent: 'center' },
-  mbody:    { paddingHorizontal: 20, paddingTop: 8 },
-
-  formLabel:     { color: '#1f2a58', fontSize: 13, fontWeight: '700', marginBottom: 6, marginTop: 14 },
-  input:         { backgroundColor: '#f3f7ff', borderRadius: 12, borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: 14, paddingVertical: 11, color: '#1f2a58', fontSize: 14 },
-  colorRow:      { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
-  colorDot:      { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  colorDotActive:{ borderWidth: 3, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, elevation: 4 },
-  saveBtn:       { marginTop: 20, backgroundColor: '#4f7cff', borderRadius: 14, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  saveBtnTxt:    { color: '#fff', fontSize: 15, fontWeight: '800' },
-
-  // ── Tab switcher ─────────────────────────────────────────
-  tabRow:         { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e4ebff', padding: 4, marginBottom: 14, gap: 4 },
-  tabBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 10 },
-  tabBtnActive:   { backgroundColor: '#edf2ff' },
-  tabBtnTxt:      { color: '#7a8cc2', fontSize: 12, fontWeight: '600' },
-  tabBtnTxtActive:{ color: '#4f7cff', fontWeight: '700' },
-  tabBadge:       { minWidth: 16, height: 16, borderRadius: 8, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
-  tabBadgeTxt:    { color: '#fff', fontSize: 9, fontWeight: '800' },
-
-  // ── Chat list cards ──────────────────────────────────────
-  chatCard:        { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e4ebff', padding: 12, marginBottom: 8 },
-  chatCardUnread:  { borderColor: '#dbeafe', backgroundColor: '#f0f7ff' },
-  chatCardAvatar:  { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  chatCardName:    { fontSize: 13, fontWeight: '700', color: '#1f2a58', flex: 1 },
-  chatCardTime:    { fontSize: 11, color: '#94a3b8', marginLeft: 'auto' as const, paddingLeft: 4 },
-  chatCardSub:     { fontSize: 11, color: '#4f7cff', fontWeight: '600', marginBottom: 2 },
-  chatCardLast:    { fontSize: 12, color: '#94a3b8' },
-  chatUnreadDot:   { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
-  chatUnreadTxt:   { color: '#fff', fontSize: 10, fontWeight: '800' },
-  emptyChat:       { alignItems: 'center', paddingTop: 60, gap: 10 },
-  emptyChatTxt:    { color: '#7a8cc2', fontSize: 13 },
-
-  // ── Chat detail screen ───────────────────────────────────
-  chatTopBar:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e4ebff', gap: 8 },
-  iconBtn:        { width: 34, height: 34, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
-  chatAvatar:     { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  chatAvatarTxt:  { color: '#fff', fontWeight: '800', fontSize: 14 },
-  chatName:       { color: '#1f2a58', fontWeight: '800', fontSize: 14 },
-  chatSub:        { color: '#7a8cc2', fontSize: 11 },
-  msgListContent: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 8 },
-  msgRow:         { flexDirection: 'row', gap: 7 },
-  msgRowSelf:     { alignSelf: 'flex-end' as const,   maxWidth: '88%', flexDirection: 'row-reverse' },
-  msgRowOther:    { alignSelf: 'flex-start' as const,  maxWidth: '88%' },
-  miniAvatar:     { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' as const },
-  bubbleColLeft:  { flexShrink: 1, gap: 2, alignItems: 'flex-start' as const },
-  bubbleColRight: { flexShrink: 1, gap: 2, alignItems: 'flex-end' as const },
-  bubble:         { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
-  bubbleLeft:     { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e4ebff', borderBottomLeftRadius: 4 },
-  bubbleRight:    { backgroundColor: '#4f7cff', borderBottomRightRadius: 4 },
-  bubbleTxt:      { fontSize: 13, lineHeight: 19, flexShrink: 1, flexWrap: 'wrap' as const },
-  bubbleTxtLeft:  { color: '#1f2a58' },
-  bubbleTxtRight: { color: '#fff' },
-  timeStamp:      { fontSize: 10, color: '#94a3b8' },
-  inputBar:       { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e4ebff', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 8 },
-  chatInput:      { flex: 1, backgroundColor: '#f1f5f9', borderRadius: 18, borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: 14, paddingVertical: 9, color: '#1f2a58', fontSize: 13, maxHeight: 88 },
-  sendBtn:        { width: 38, height: 38, borderRadius: 19, backgroundColor: '#4f7cff', alignItems: 'center', justifyContent: 'center' },
-  sendBtnOff:     { backgroundColor: '#e2e8f0' },
-});
+const getStyles = (scale: number) => {
+  const sz = (val: number) => Math.round(val * scale);
+  return StyleSheet.create({
+    screen:  { flex: 1, backgroundColor: '#f3f7ff' },
+    content: { padding: sz(18) },
+    title:   { color: '#1f2a58', fontSize: sz(26), fontWeight: '700', marginBottom: sz(14) },
+    profileCard: { backgroundColor: '#fff', borderRadius: sz(16), borderWidth: 1, borderColor: '#e4ebff', padding: sz(14), flexDirection: 'row', alignItems: 'center', gap: sz(12), marginBottom: sz(14) },
+    avatar:        { width: sz(56), height: sz(56), borderRadius: sz(16), alignItems: 'center', justifyContent: 'center' },
+    avatarInitial: { color: '#fff', fontSize: sz(22), fontWeight: '800' },
+    profileInfo:   { flex: 1 },
+    name:          { color: '#1f2a58', fontWeight: '700', fontSize: sz(16) },
+    email:         { color: '#7a8cc2', marginTop: sz(3), fontSize: sz(13) },
+    phone:         { color: '#5f73a9', marginTop: sz(2), fontSize: sz(12) },
+    crmCard:      { backgroundColor: '#fff', borderRadius: sz(16), borderWidth: 1, borderColor: '#e4ebff', padding: sz(16), marginBottom: sz(14), gap: sz(10) },
+    crmRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    crmTitle:     { color: '#1f2a58', fontWeight: '700', fontSize: sz(14) },
+    crmPoints:    { fontWeight: '800', fontSize: sz(16) },
+    crmMeta:      { color: '#7a8cc2', fontSize: sz(13) },
+    tierBadge:    { borderRadius: sz(10), paddingHorizontal: sz(10), paddingVertical: sz(4) },
+    tierTxt:      { fontWeight: '800', fontSize: sz(13) },
+    voucherRow:   { flexDirection: 'row', alignItems: 'center', gap: sz(6) },
+    voucherTxt:   { color: '#7a8cc2', fontSize: sz(13) },
+    voucherCode:  { color: '#4f7cff', fontWeight: '700' },
+    progressWrap: { gap: sz(5) },
+    progressBg:   { height: sz(5), backgroundColor: '#e4ebff', borderRadius: sz(4), overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: '#4f7cff', borderRadius: sz(4) },
+    progressHint: { color: '#7a8cc2', fontSize: sz(11) },
+    editBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(8), backgroundColor: '#fff', borderRadius: sz(14), borderWidth: 1.5, borderColor: '#dfe7ff', paddingVertical: sz(12), marginBottom: sz(18) },
+    editBtnTxt: { color: '#4f7cff', fontWeight: '700', fontSize: sz(14) },
+    menuItem: { marginBottom: sz(10), borderRadius: sz(14), backgroundColor: '#fff', borderWidth: 1, borderColor: '#e4ebff', padding: sz(14), flexDirection: 'row', alignItems: 'center', gap: sz(12) },
+    menuIcon: { width: sz(36), height: sz(36), borderRadius: sz(10), backgroundColor: '#edf2ff', alignItems: 'center', justifyContent: 'center' },
+    menuText: { color: '#1f2a58', fontWeight: '600', flex: 1, fontSize: sz(14) },
+    dualCard:  { backgroundColor: '#fff', borderRadius: sz(16), borderWidth: 1, borderColor: '#e4ebff', padding: sz(14), marginBottom: sz(12) },
+    dualTitle: { color: '#1f2a58', fontWeight: '700', marginBottom: sz(10), fontSize: sz(14) },
+    dualRow:   { flexDirection: 'row', alignItems: 'center', gap: sz(12), paddingVertical: sz(8) },
+    dualIcon:  { width: sz(40), height: sz(40), borderRadius: sz(12), alignItems: 'center', justifyContent: 'center' },
+    dualLabel: { color: '#1f2a58', fontWeight: '700', fontSize: sz(14) },
+    dualSub:   { color: '#7a8cc2', fontSize: sz(12), marginTop: sz(2) },
+    logoutBtn: { marginTop: sz(6), borderRadius: sz(14), backgroundColor: '#fff', borderWidth: 1, borderColor: '#fee2e2', padding: sz(14), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(10) },
+    logoutTxt: { color: '#ef4444', fontWeight: '700', fontSize: sz(15) },
+    overlay:  { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(10,18,50,0.45)' },
+    sheet:    { backgroundColor: '#fff', borderTopLeftRadius: sz(28), borderTopRightRadius: sz(28), maxHeight: '90%' },
+    handle:   { width: sz(40), height: sz(4), backgroundColor: '#e4ebff', borderRadius: sz(2), alignSelf: 'center', marginTop: sz(12) },
+    mheader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: sz(20), paddingVertical: sz(16), borderBottomWidth: 1, borderBottomColor: '#f0f4ff' },
+    mtitle:   { fontSize: sz(17), fontWeight: '800', color: '#1f2a58' },
+    closeBtn: { width: sz(32), height: sz(32), borderRadius: sz(10), backgroundColor: '#f3f7ff', alignItems: 'center', justifyContent: 'center' },
+    mbody:    { paddingHorizontal: sz(20), paddingTop: sz(8) },
+    formLabel:     { color: '#1f2a58', fontSize: sz(13), fontWeight: '700', marginBottom: sz(6), marginTop: sz(14) },
+    input:         { backgroundColor: '#f3f7ff', borderRadius: sz(12), borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: sz(14), paddingVertical: sz(11), color: '#1f2a58', fontSize: sz(14), marginBottom: sz(12) },
+    colorRow:      { flexDirection: 'row', gap: sz(10), flexWrap: 'wrap', marginBottom: sz(4) },
+    colorDot:      { width: sz(36), height: sz(36), borderRadius: sz(18), alignItems: 'center', justifyContent: 'center' },
+    colorDotActive:{ borderWidth: 3, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, elevation: 4 },
+    saveBtn:       { marginTop: sz(20), backgroundColor: '#4f7cff', borderRadius: sz(14), paddingVertical: sz(14), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(8), marginBottom: sz(30) },
+    saveBtnTxt:    { color: '#fff', fontSize: sz(15), fontWeight: '800' },
+    tabRow:         { flexDirection: 'row', backgroundColor: '#fff', borderRadius: sz(14), borderWidth: 1, borderColor: '#e4ebff', padding: sz(4), marginBottom: sz(14), gap: sz(4) },
+    tabBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(5), paddingVertical: sz(9), borderRadius: sz(10) },
+    tabBtnActive:   { backgroundColor: '#edf2ff' },
+    tabBtnTxt:      { color: '#7a8cc2', fontSize: sz(12), fontWeight: '600' },
+    tabBtnTxtActive:{ color: '#4f7cff', fontWeight: '700' },
+    tabBadge:       { minWidth: sz(16), height: sz(16), borderRadius: sz(8), backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: sz(3) },
+    tabBadgeTxt:    { color: '#fff', fontSize: sz(9), fontWeight: '800' },
+    chatCard:        { flexDirection: 'row', alignItems: 'center', gap: sz(10), backgroundColor: '#fff', borderRadius: sz(14), borderWidth: 1, borderColor: '#e4ebff', padding: sz(12), marginBottom: sz(8) },
+    chatCardUnread:  { borderColor: '#dbeafe', backgroundColor: '#f0f7ff' },
+    chatCardAvatar:  { width: sz(46), height: sz(46), borderRadius: sz(14), alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    chatCardName:    { fontSize: sz(13), fontWeight: '700', color: '#1f2a58', flex: 1 },
+    chatCardTime:    { fontSize: sz(11), color: '#94a3b8', marginLeft: 'auto', paddingLeft: sz(4) },
+    chatCardSub:     { fontSize: sz(11), color: '#4f7cff', fontWeight: '600', marginBottom: sz(2) },
+    chatCardLast:    { fontSize: sz(12), color: '#94a3b8' },
+    chatUnreadDot:   { minWidth: sz(18), height: sz(18), borderRadius: sz(9), backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: sz(3) },
+    chatUnreadTxt:   { color: '#fff', fontSize: sz(10), fontWeight: '800' },
+    emptyChat:       { alignItems: 'center', paddingTop: sz(60), gap: sz(10) },
+    emptyChatTxt:    { color: '#7a8cc2', fontSize: sz(13) },
+    chatTopBar:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: sz(12), paddingBottom: sz(10), backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e4ebff', gap: sz(8) },
+    iconBtn:        { width: sz(34), height: sz(34), borderRadius: sz(9), backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+    chatAvatar:     { width: sz(34), height: sz(34), borderRadius: sz(10), alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    chatAvatarTxt:  { color: '#fff', fontWeight: '800', fontSize: sz(14) },
+    chatName:       { color: '#1f2a58', fontWeight: '800', fontSize: sz(14) },
+    chatSub:        { color: '#7a8cc2', fontSize: sz(11) },
+    msgListContent: { paddingHorizontal: sz(12), paddingTop: sz(12), paddingBottom: sz(10), gap: sz(8) },
+    msgRow:         { flexDirection: 'row', gap: sz(7) },
+    msgRowSelf:     { alignSelf: 'flex-end', maxWidth: '88%', flexDirection: 'row-reverse' },
+    msgRowOther:    { alignSelf: 'flex-start', maxWidth: '88%' },
+    miniAvatar:     { width: sz(26), height: sz(26), borderRadius: sz(7), alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' },
+    bubbleColLeft:  { flexShrink: 1, gap: sz(2), alignItems: 'flex-start' },
+    bubbleColRight: { flexShrink: 1, gap: sz(2), alignItems: 'flex-end' },
+    bubble:         { borderRadius: sz(14), paddingHorizontal: sz(12), paddingVertical: sz(9) },
+    bubbleLeft:     { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e4ebff', borderBottomLeftRadius: sz(4) },
+    bubbleRight:    { backgroundColor: '#4f7cff', borderBottomRightRadius: sz(4) },
+    bubbleTxt:      { fontSize: sz(13), lineHeight: sz(19), flexShrink: 1, flexWrap: 'wrap' },
+    bubbleTxtLeft:  { color: '#1f2a58' },
+    bubbleTxtRight: { color: '#fff' },
+    timeStamp:      { fontSize: sz(10), color: '#94a3b8' },
+    inputBar:       { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e4ebff', flexDirection: 'row', alignItems: 'center', gap: sz(8), paddingHorizontal: sz(12), paddingTop: sz(8) },
+    chatInput:      { flex: 1, backgroundColor: '#f1f5f9', borderRadius: sz(18), borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: sz(14), paddingVertical: sz(9), color: '#1f2a58', fontSize: sz(13), maxHeight: sz(88) },
+    sendBtn:        { width: sz(38), height: sz(38), borderRadius: sz(19), backgroundColor: '#4f7cff', alignItems: 'center', justifyContent: 'center' },
+    sendBtnOff:     { backgroundColor: '#e2e8f0' },
+  });
+};

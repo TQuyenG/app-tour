@@ -1,393 +1,277 @@
 /**
- * guest-become-guide.tsx
- *
- * Fix:
- *  1. Nếu @app_current_user chưa có (demo login cũ) → fallback đọc @app_profile
- *  2. Button không bao giờ bị block im lặng — luôn có thông báo rõ ràng
- *  3. Thông tin cá nhân tự điền từ data đã có (profile hoặc session)
- *  4. submitGuideRequest không cần accountId bắt buộc — fallback sang id tạm
+ * app/guest-become-guide.tsx
+ * Khách hàng điền form đăng ký làm HDV -> Lưu local cho Admin duyệt
+ * - Đã FIX: Xóa bar đen (Navigation Header).
+ * - Đã FIX: Thay thế Alert bằng Popup Modal tùy chỉnh.
+ * - Đã FIX: Xử lý mượt luồng lưu Data cho Admin.
+ * - Responsive UI toàn diện.
  */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Stack, useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, KeyboardAvoidingView, Platform, ScrollView,
-  StyleSheet, Text, TextInput, TouchableOpacity, View,
+  KeyboardAvoidingView, Platform, ScrollView, Modal,
+  StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions, StatusBar
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { getPendingGuideRequests, submitGuideRequest } from '@/constants/app-accounts';
-
-// ─── Load user info từ mọi nguồn có thể ─────────────────────
-async function loadUserInfo(): Promise<{
-  accountId: string; name: string; email: string; phone: string;
-  roles: string[];
-}> {
-  // Thử session trước
-  try {
-    const sessionRaw = await AsyncStorage.getItem('@app_current_user');
-    if (sessionRaw) {
-      const s = JSON.parse(sessionRaw);
-      if (s.name) return {
-        accountId: s.accountId || `guest-${Date.now()}`,
-        name:      s.name  || '',
-        email:     s.email || '',
-        phone:     s.phone || '',
-        roles:     s.roles || ['guest'],
-      };
-    }
-  } catch {}
-
-  // Fallback: @app_profile (guest profile)
-  try {
-    const profileRaw = await AsyncStorage.getItem('@app_profile');
-    if (profileRaw) {
-      const p = JSON.parse(profileRaw);
-      return {
-        accountId: `guest-${Date.now()}`,
-        name:      p.name  || '',
-        email:     p.email || '',
-        phone:     p.phone || '',
-        roles:     ['guest'],
-      };
-    }
-  } catch {}
-
-  return { accountId: `guest-${Date.now()}`, name: '', email: '', phone: '', roles: ['guest'] };
-}
 
 export default function GuestBecomeGuideScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const scale = Math.min(width / 375, 1.2);
+  const s = useMemo(() => getStyles(scale), [scale]);
+  
+  const [user, setUser] = useState({ accountId: `guest-${Date.now()}`, name: '', email: '', phone: '' });
+  const [form, setForm] = useState({ location: '', experience: '', skills: '', bio: '' });
+  const [submitting, setSubmitting] = useState(false);
 
-  const [userInfo,   setUserInfo]   = useState<{ accountId:string; name:string; email:string; phone:string; roles:string[] } | null>(null);
-  const [existing,   setExisting]   = useState<any>(null);
-  const [loadingInit,setLoadingInit]= useState(true);
-  const [loading,    setLoading]    = useState(false);
-
-  // Form fields — pre-filled sau khi load
-  const [bio,        setBio]        = useState('');
-  const [skills,     setSkills]     = useState('');
-  const [languages,  setLanguages]  = useState('Tiếng Việt');
-  const [experience, setExperience] = useState('');
+  // State quản lý Popup tùy chỉnh (Thay thế cho Alert)
+  const [popup, setPopup] = useState<{
+    visible: boolean;
+    type: "success" | "error" | "confirm";
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+  }>({ visible: false, type: "success", title: "", message: "" });
 
   useEffect(() => {
-    Promise.all([
-      loadUserInfo(),
-      getPendingGuideRequests(),
-    ]).then(([info, reqs]) => {
-      setUserInfo(info);
-      // Tìm request của user hiện tại (dùng email để match vì accountId có thể thay đổi)
-      const myReq = reqs.find(r =>
-        r.email === info.email || r.accountId === info.accountId
-      );
-      if (myReq && myReq.status !== 'rejected') setExisting(myReq);
-      setLoadingInit(false);
-    });
+    const loadUser = async () => {
+      try {
+        const sessionRaw = await AsyncStorage.getItem('@app_current_user');
+        if (sessionRaw) {
+          const sessionData = JSON.parse(sessionRaw);
+          setUser({ 
+            accountId: sessionData.accountId || user.accountId, 
+            name: sessionData.name || '', 
+            email: sessionData.email || '', 
+            phone: sessionData.phone || '' 
+          });
+        } else {
+          const profileRaw = await AsyncStorage.getItem('@app_profile');
+          if (profileRaw) {
+            const p = JSON.parse(profileRaw);
+            setUser({ 
+              accountId: user.accountId, 
+              name: p.name || '', 
+              email: p.email || '', 
+              phone: p.phone || '' 
+            });
+          }
+        }
+      } catch (e) {
+        console.log("Lỗi load user", e);
+      }
+    };
+    loadUser();
   }, []);
 
-  const handleSubmit = async () => {
-    // Validate từng field với thông báo cụ thể
-    if (!bio.trim()) {
-      Alert.alert('Thiếu thông tin', 'Vui lòng nhập phần Giới thiệu bản thân.');
-      return;
-    }
-    if (!skills.trim()) {
-      Alert.alert('Thiếu thông tin', 'Vui lòng nhập Kỹ năng của bạn.');
-      return;
-    }
-    if (!experience.trim()) {
-      Alert.alert('Thiếu thông tin', 'Vui lòng nhập Kinh nghiệm (VD: 3 năm).');
-      return;
-    }
-    if (!languages.trim()) {
-      Alert.alert('Thiếu thông tin', 'Vui lòng nhập Ngôn ngữ.');
+  const handlePreSubmit = () => {
+    if (!form.location || !form.experience || !form.skills || !form.bio) {
+      setPopup({
+        visible: true,
+        type: "error",
+        title: "Thiếu thông tin",
+        message: "Vui lòng điền đầy đủ các trường bắt buộc có dấu (*)."
+      });
       return;
     }
 
-    // Nếu chưa có thông tin user → vẫn cho gửi với thông báo
-    const info = userInfo ?? { accountId: `guest-${Date.now()}`, name: '---', email: '---', phone: '---', roles: ['guest'] };
+    setPopup({
+      visible: true,
+      type: "confirm",
+      title: "Xác nhận gửi hồ sơ",
+      message: "Bạn có chắc chắn muốn gửi thông tin này cho Admin xét duyệt không?",
+      onConfirm: executeSubmit
+    });
+  };
 
-    setLoading(true);
+  const executeSubmit = async () => {
+    setSubmitting(true);
+    setPopup({ ...popup, visible: false }); // Ẩn popup xác nhận
+    
     try {
-      await submitGuideRequest(
-        info.accountId,
-        info.name,
-        info.email,
-        info.phone,
-        bio.trim(),
-        skills.trim(),
-        languages.trim(),
-        experience.trim(),
-      );
-      setLoading(false);
-      Alert.alert(
-        '✅ Đã gửi yêu cầu!',
-        'Admin sẽ xét duyệt và thông báo kết quả trong 1-3 ngày làm việc. Bạn có thể kiểm tra trạng thái tại đây bất kỳ lúc nào.',
-        [{ text: 'OK', onPress: () => router.back() }],
-      );
-    } catch (err) {
-      setLoading(false);
-      Alert.alert('Lỗi', 'Không thể gửi yêu cầu. Vui lòng thử lại.');
+      // 1. Lưu yêu cầu cho Admin duyệt
+      const newReq = {
+        id: `req-${Date.now()}`, 
+        accountId: user.accountId,
+        name: user.name || 'Người dùng ẩn danh', 
+        email: user.email, 
+        phone: user.phone,
+        ...form, 
+        status: 'pending', 
+        createdAt: new Date().toISOString()
+      };
+      
+      const rawReqs = await AsyncStorage.getItem('@admin_guide_requests');
+      const reqList = rawReqs ? JSON.parse(rawReqs) : [];
+      reqList.unshift(newReq);
+      await AsyncStorage.setItem('@admin_guide_requests', JSON.stringify(reqList));
+
+      // 2. Bắn thông báo cho Admin
+      const rawNotifs = await AsyncStorage.getItem('@admin_notifications');
+      const notifs = rawNotifs ? JSON.parse(rawNotifs) : [];
+      notifs.unshift({ 
+        id: `an-${Date.now()}`, 
+        title: 'Yêu cầu HDV mới', 
+        body: `${user.name || 'Một khách hàng'} vừa đăng ký làm HDV.`, 
+        read: false, 
+        createdAt: new Date().toISOString() 
+      });
+      await AsyncStorage.setItem('@admin_notifications', JSON.stringify(notifs));
+
+      // 3. Hiển thị Popup thành công
+      setPopup({
+        visible: true,
+        type: "success",
+        title: "Thành công",
+        message: "Hồ sơ của bạn đã được gửi. Admin sẽ xét duyệt trong vòng 24h.",
+        onConfirm: () => {
+          setPopup({ ...popup, visible: false });
+          router.back();
+        }
+      });
+    } catch (e) {
+      setPopup({
+        visible: true,
+        type: "error",
+        title: "Lỗi hệ thống",
+        message: "Không thể gửi yêu cầu lúc này. Vui lòng thử lại sau."
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const alreadyGuide = userInfo?.roles?.includes('guide');
-
-  // ── Loading ─────────────────────────────────────────────────
-  if (loadingInit) {
-    return (
-      <View style={st.loadingWrap}>
-        <Text style={st.loadingTxt}>Đang tải...</Text>
-      </View>
-    );
-  }
-
   return (
-    <KeyboardAvoidingView
-      style={st.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView
-        contentContainerStyle={[st.content, { paddingTop: insets.top + 14, paddingBottom: 40 }]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}>
+    <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {/* KHẮC PHỤC LỖI BAR ĐEN BẰNG STACK.SCREEN */}
+      <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
 
-        <TouchableOpacity style={st.backRow} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={20} color="#4f7cff"/>
-          <Text style={st.backTxt}>Quay lại</Text>
+      <View style={[s.header, { paddingTop: insets.top + Math.round(10 * scale) }]}>
+        <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={Math.round(24 * scale)} color="#1f2a58" />
         </TouchableOpacity>
+        <Text style={s.title}>Trở thành Hướng dẫn viên</Text>
+        <View style={{ width: Math.round(40 * scale) }} />
+      </View>
 
-        <Text style={st.title}>Trở thành Hướng dẫn viên</Text>
-        <Text style={st.sub}>Chia sẻ kiến thức địa phương và kiếm thu nhập từ đam mê du lịch</Text>
-
-        {/* ── Lợi ích ── */}
-        <View style={st.benefitsCard}>
-          {[
-            { icon: 'cash-outline',             txt: 'Thu nhập 500.000đ – 2.000.000đ / tour' },
-            { icon: 'star-outline',             txt: 'Xây dựng danh tiếng qua đánh giá khách' },
-            { icon: 'shield-checkmark-outline', txt: 'Bảo vệ bởi chính sách Escrow TourGo' },
-            { icon: 'people-outline',           txt: 'Kết nối hàng ngàn khách mỗi tháng' },
-          ].map((item, i) => (
-            <View key={i} style={st.benefitRow}>
-              <View style={st.benefitIcon}>
-                <Ionicons name={item.icon as any} size={18} color="#4f7cff"/>
-              </View>
-              <Text style={st.benefitTxt}>{item.txt}</Text>
-            </View>
-          ))}
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={s.noteBox}>
+          <Ionicons name="information-circle" size={Math.round(24 * scale)} color="#4f7cff" />
+          <Text style={s.noteTxt}>Hồ sơ của bạn sẽ được đội ngũ kiểm duyệt để đảm bảo chất lượng nền tảng.</Text>
         </View>
 
-        {/* ── Đã là HDV ── */}
-        {alreadyGuide ? (
-          <View style={[st.statusCard, { borderColor: '#bbf7d0' }]}>
-            <Ionicons name="checkmark-circle" size={48} color="#16a34a"/>
-            <Text style={st.statusTitle}>Bạn đã là Hướng dẫn viên!</Text>
-            <Text style={st.statusSub}>Chuyển sang tab HDV để quản lý lịch và nhận tour.</Text>
-            <TouchableOpacity style={st.statusBtn} onPress={() => router.push('/guide-home' as any)}>
-              <Text style={st.statusBtnTxt}>Vào trang HDV</Text>
-            </TouchableOpacity>
-          </View>
+        <Text style={s.sectionTitle}>Thông tin cá nhân (Tự động điền)</Text>
+        <View style={s.infoCard}>
+          <View style={s.infoRow}><Text style={s.infoLbl}>Họ tên:</Text><Text style={s.infoVal}>{user.name || 'Chưa cập nhật'}</Text></View>
+          <View style={s.infoRow}><Text style={s.infoLbl}>Email:</Text><Text style={s.infoVal}>{user.email || 'Chưa cập nhật'}</Text></View>
+          <View style={[s.infoRow, { borderBottomWidth: 0 }]}><Text style={s.infoLbl}>Số ĐT:</Text><Text style={s.infoVal}>{user.phone || 'Chưa cập nhật'}</Text></View>
+        </View>
+        <Text style={s.infoWarning}>Vui lòng cập nhật thông tin cá nhân trong phần Tài khoản nếu chưa chính xác.</Text>
 
-        /* ── Đang chờ / bị từ chối ── */
-        ) : existing ? (
-          <View style={[st.statusCard, {
-            borderColor: existing.status === 'pending' ? '#fde68a' : '#fecaca',
-            backgroundColor: existing.status === 'pending' ? '#fffbeb' : '#fff5f5',
-          }]}>
-            <Ionicons
-              name={existing.status === 'pending' ? 'hourglass-outline' : 'close-circle'}
-              size={48}
-              color={existing.status === 'pending' ? '#d97706' : '#ef4444'}/>
-            <Text style={st.statusTitle}>
-              {existing.status === 'pending' ? 'Đang chờ Admin xét duyệt' : 'Yêu cầu bị từ chối'}
-            </Text>
-            <Text style={st.statusSub}>
-              {existing.status === 'pending'
-                ? 'Chúng tôi sẽ thông báo kết quả trong 1-3 ngày làm việc.'
-                : `Lý do: ${existing.note || 'Không đáp ứng yêu cầu hiện tại'}`}
-            </Text>
-            {existing.status === 'rejected' && (
-              <TouchableOpacity style={[st.statusBtn, { backgroundColor: '#ef4444' }]}
-                onPress={() => setExisting(null)}>
-                <Text style={st.statusBtnTxt}>Gửi lại yêu cầu</Text>
+        <Text style={[s.sectionTitle, { marginTop: Math.round(24 * scale) }]}>Kinh nghiệm & Kỹ năng</Text>
+        
+        <Text style={s.label}>Khu vực hoạt động chính *</Text>
+        <TextInput style={s.inputField} placeholder="VD: Đà Lạt, Phú Quốc..." value={form.location} onChangeText={v => setForm({ ...form, location: v })} placeholderTextColor="#94a3b8" />
+
+        <Text style={s.label}>Kinh nghiệm dẫn tour *</Text>
+        <TextInput style={s.inputField} placeholder="VD: 3 năm làm HDV tự do..." value={form.experience} onChangeText={v => setForm({ ...form, experience: v })} placeholderTextColor="#94a3b8" />
+
+        <Text style={s.label}>Kỹ năng nổi bật (Cách nhau dấu phẩy) *</Text>
+        <TextInput style={s.inputField} placeholder="VD: Tiếng Anh, Chụp ảnh, Hoạt náo..." value={form.skills} onChangeText={v => setForm({ ...form, skills: v })} placeholderTextColor="#94a3b8" />
+
+        <Text style={s.label}>Giới thiệu ngắn về bản thân *</Text>
+        <TextInput style={s.textArea} placeholder="Thuyết phục khách hàng chọn bạn..." multiline textAlignVertical="top" value={form.bio} onChangeText={v => setForm({ ...form, bio: v })} placeholderTextColor="#94a3b8" />
+
+      </ScrollView>
+
+      <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, Math.round(14 * scale)) }]}>
+        <TouchableOpacity style={[s.submitBtn, submitting && { opacity: 0.7 }]} onPress={handlePreSubmit} disabled={submitting}>
+          <Text style={s.submitBtnTxt}>{submitting ? 'Đang xử lý...' : 'Gửi Yêu Cầu Duyệt'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* POPUP TÙY CHỈNH THAY THẾ ALERT */}
+      <Modal visible={popup.visible} transparent animationType="fade">
+        <View style={s.popupOverlay}>
+          <View style={s.popupBox}>
+            <View style={[s.popupIconWrap, { backgroundColor: popup.type === "success" ? "#d1fae5" : popup.type === "error" ? "#fee2e2" : "#eaf0ff" }]}>
+              <Ionicons 
+                name={popup.type === "success" ? "checkmark-circle" : popup.type === "error" ? "warning" : "help-circle"} 
+                size={Math.round(32 * scale)} 
+                color={popup.type === "success" ? "#10b981" : popup.type === "error" ? "#ef4444" : "#4f7cff"} 
+              />
+            </View>
+            <Text style={s.popupTitle}>{popup.title}</Text>
+            <Text style={s.popupMessage}>{popup.message}</Text>
+            
+            {popup.type === "confirm" ? (
+              <View style={s.popupActionRow}>
+                <TouchableOpacity style={s.popupCancelBtn} onPress={() => setPopup({ ...popup, visible: false })}>
+                  <Text style={s.popupCancelBtnTxt}>Hủy</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.popupSubmitBtn} onPress={popup.onConfirm}>
+                  <Text style={s.popupSubmitBtnTxt}>Đồng ý</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.popupSingleBtn} onPress={() => {
+                if (popup.onConfirm) popup.onConfirm();
+                else setPopup({ ...popup, visible: false });
+              }}>
+                <Text style={s.popupSingleBtnTxt}>Đóng</Text>
               </TouchableOpacity>
             )}
           </View>
-
-        /* ── Form đăng ký ── */
-        ) : (
-          <>
-            {/* Thông tin cá nhân (tự điền) */}
-            <View style={st.section}>
-              <View style={st.sectionHeader}>
-                <Text style={st.sectionTitle}>Thông tin cá nhân</Text>
-                <View style={st.autoFillBadge}>
-                  <Ionicons name="checkmark-circle-outline" size={12} color="#16a34a"/>
-                  <Text style={st.autoFillTxt}>Tự điền</Text>
-                </View>
-              </View>
-              <View style={st.infoCard}>
-                <InfoRow label="Họ tên" val={userInfo?.name || ''} placeholder="Chưa có — vui lòng cập nhật Profile"/>
-                <InfoRow label="Email"  val={userInfo?.email || ''} placeholder="Chưa có email"/>
-                <InfoRow label="SĐT"    val={userInfo?.phone || ''} placeholder="Chưa có số điện thoại"/>
-              </View>
-              {(!userInfo?.name || !userInfo?.email) && (
-                <Text style={st.infoWarning}>
-                  ⚠️ Thông tin chưa đầy đủ. Hãy cập nhật Profile trước khi gửi yêu cầu.
-                </Text>
-              )}
-            </View>
-
-            {/* Giới thiệu */}
-            <View style={st.section}>
-              <Text style={st.sectionTitle}>Giới thiệu bản thân <Text style={st.required}>*</Text></Text>
-              <TextInput
-                style={st.textArea}
-                placeholder="Mô tả kinh nghiệm, điểm mạnh và phong cách dẫn tour của bạn..."
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-                value={bio}
-                onChangeText={setBio}
-                placeholderTextColor="#b0bdd8"
-              />
-              <Text style={st.charCount}>{bio.length} ký tự</Text>
-            </View>
-
-            {/* Kỹ năng */}
-            <View style={st.section}>
-              <Text style={st.sectionTitle}>Kỹ năng <Text style={st.required}>*</Text></Text>
-              <TextInput
-                style={st.inputField}
-                placeholder="VD: Biển đảo, Trekking, Ẩm thực, Nhiếp ảnh"
-                value={skills}
-                onChangeText={setSkills}
-                placeholderTextColor="#b0bdd8"
-              />
-              <Text style={st.fieldHint}>Cách nhau bằng dấu phẩy</Text>
-            </View>
-
-            {/* Ngôn ngữ */}
-            <View style={st.section}>
-              <Text style={st.sectionTitle}>Ngôn ngữ <Text style={st.required}>*</Text></Text>
-              <TextInput
-                style={st.inputField}
-                placeholder="VD: Tiếng Việt, Tiếng Anh"
-                value={languages}
-                onChangeText={setLanguages}
-                placeholderTextColor="#b0bdd8"
-              />
-            </View>
-
-            {/* Kinh nghiệm */}
-            <View style={st.section}>
-              <Text style={st.sectionTitle}>Kinh nghiệm <Text style={st.required}>*</Text></Text>
-              <TextInput
-                style={st.inputField}
-                placeholder="VD: 3 năm, 5 năm, mới bắt đầu..."
-                value={experience}
-                onChangeText={setExperience}
-                placeholderTextColor="#b0bdd8"
-              />
-            </View>
-
-            {/* Note */}
-            <View style={st.noteBox}>
-              <Ionicons name="information-circle-outline" size={16} color="#4f7cff"/>
-              <Text style={st.noteTxt}>
-                Sau khi gửi, Admin sẽ xét duyệt và thông báo kết quả.
-                Khi được duyệt, tài khoản của bạn sẽ có thêm quyền Hướng dẫn viên và
-                có thể chuyển đổi qua lại tự do.
-              </Text>
-            </View>
-
-            {/* Submit button */}
-            <TouchableOpacity
-              style={[st.submitBtn, loading && { opacity: 0.65 }]}
-              onPress={handleSubmit}
-              disabled={loading}
-              activeOpacity={0.8}>
-              <Ionicons name="paper-plane-outline" size={18} color="#fff"/>
-              <Text style={st.submitBtnTxt}>
-                {loading ? 'Đang gửi yêu cầu...' : 'Gửi yêu cầu đăng ký HDV'}
-              </Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </ScrollView>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
-// ─── Info row helper ──────────────────────────────────────────
-function InfoRow({ label, val, placeholder }: { label: string; val: string; placeholder: string }) {
-  const isEmpty = !val.trim();
-  return (
-    <View style={{
-      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f4ff',
-    }}>
-      <Text style={{ color: '#7a8cc2', fontSize: 13, width: 60 }}>{label}</Text>
-      <Text style={{
-        flex: 1, textAlign: 'right', fontSize: 13, fontWeight: isEmpty ? '400' : '600',
-        color: isEmpty ? '#c0cbe8' : '#1f2a58',
-      }}>
-        {isEmpty ? placeholder : val}
-      </Text>
-    </View>
-  );
-}
+const getStyles = (scale: number) => {
+  const sz = (val: number) => Math.round(val * scale);
+  
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: '#f8faff' },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: sz(16), paddingBottom: sz(12), backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e4ebff' },
+    backBtn: { width: sz(40), height: sz(40), borderRadius: sz(12), backgroundColor: '#f3f7ff', alignItems: 'center', justifyContent: 'center' },
+    title: { fontSize: sz(17), fontWeight: '800', color: '#1f2a58' },
+    content: { padding: sz(18), paddingBottom: sz(40) },
+    
+    noteBox: { flexDirection: 'row', alignItems: 'flex-start', gap: sz(8), backgroundColor: '#edf2ff', borderRadius: sz(12), padding: sz(12), marginBottom: sz(16) },
+    noteTxt: { flex: 1, color: '#4f7cff', fontSize: sz(13), lineHeight: sz(18) },
+    
+    sectionTitle: { fontSize: sz(15), fontWeight: '900', color: '#1f2a58', marginBottom: sz(12) },
+    infoCard: { backgroundColor: '#fff', borderRadius: sz(14), borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: sz(12) },
+    infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: sz(12), borderBottomWidth: 1, borderBottomColor: '#f0f4ff' },
+    infoLbl: { color: '#7a8cc2', fontSize: sz(13), fontWeight: '600' },
+    infoVal: { color: '#1f2a58', fontWeight: '800', fontSize: sz(13) },
+    infoWarning: { color: '#d97706', fontSize: sz(12), marginTop: sz(8), fontStyle: 'italic' },
+    
+    label: { fontSize: sz(13), fontWeight: '800', color: '#1f2a58', marginTop: sz(16), marginBottom: sz(8) },
+    inputField: { backgroundColor: '#fff', borderRadius: sz(14), borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: sz(14), paddingVertical: sz(13), color: '#1f2a58', fontSize: sz(14) },
+    textArea: { backgroundColor: '#fff', borderRadius: sz(14), borderWidth: 1, borderColor: '#e4ebff', padding: sz(14), minHeight: sz(110), color: '#1f2a58', fontSize: sz(14) },
+    
+    bottomBar: { backgroundColor: '#fff', paddingHorizontal: sz(18), paddingTop: sz(14), borderTopWidth: 1, borderTopColor: '#e4ebff', elevation: 10 },
+    submitBtn: { backgroundColor: '#4f7cff', borderRadius: sz(14), height: sz(52), alignItems: 'center', justifyContent: 'center' },
+    submitBtnTxt: { color: '#fff', fontWeight: '900', fontSize: sz(15) },
 
-// ─── Styles ───────────────────────────────────────────────────
-const st = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: '#f3f7ff' },
-  content:     { padding: 18 },
-  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f7ff' },
-  loadingTxt:  { color: '#7a8cc2', fontWeight: '600' },
-
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
-  backTxt: { color: '#4f7cff', fontWeight: '600' },
-  title:   { color: '#1f2a58', fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  sub:     { color: '#7a8cc2', lineHeight: 20, marginBottom: 18 },
-
-  benefitsCard: {
-    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-    borderColor: '#e4ebff', padding: 16, marginBottom: 20, gap: 12,
-  },
-  benefitRow:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  benefitIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#edf2ff', alignItems: 'center', justifyContent: 'center' },
-  benefitTxt:  { flex: 1, color: '#1f2a58', fontSize: 13, fontWeight: '600' },
-
-  statusCard:  { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1.5, padding: 24, alignItems: 'center', gap: 12 },
-  statusTitle: { color: '#1f2a58', fontWeight: '800', fontSize: 18, textAlign: 'center' },
-  statusSub:   { color: '#7a8cc2', textAlign: 'center', lineHeight: 20 },
-  statusBtn:   { backgroundColor: '#4f7cff', borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, marginTop: 4 },
-  statusBtnTxt:{ color: '#fff', fontWeight: '700' },
-
-  section:       { marginBottom: 16 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  sectionTitle:  { color: '#1f2a58', fontWeight: '700', fontSize: 14 },
-  required:      { color: '#ef4444' },
-  autoFillBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#edf9f0', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  autoFillTxt:   { color: '#16a34a', fontSize: 11, fontWeight: '700' },
-
-  infoCard:    { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: 12 },
-  infoWarning: { color: '#d97706', fontSize: 12, marginTop: 8, lineHeight: 18 },
-
-  textArea:   { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e4ebff', padding: 14, minHeight: 110, color: '#1f2a58', fontSize: 14, lineHeight: 22 },
-  inputField: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e4ebff', paddingHorizontal: 14, paddingVertical: 13, color: '#1f2a58', fontSize: 14 },
-  fieldHint:  { color: '#94a3b8', fontSize: 11, marginTop: 5 },
-  charCount:  { color: '#94a3b8', fontSize: 11, marginTop: 5, textAlign: 'right' },
-
-  noteBox:  { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#edf2ff', borderRadius: 12, padding: 12, marginBottom: 16 },
-  noteTxt:  { flex: 1, color: '#4f7cff', fontSize: 12, lineHeight: 18 },
-
-  submitBtn: {
-    height: 54, borderRadius: 14, backgroundColor: '#4f7cff',
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    elevation: 4, shadowColor: '#4f7cff', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 10,
-  },
-  submitBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 15 },
-});
+    // Custom Popup Styles
+    popupOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.6)", alignItems: "center", justifyContent: "center", padding: sz(24) },
+    popupBox: { backgroundColor: "#fff", width: "100%", maxWidth: sz(340), borderRadius: sz(24), padding: sz(24), alignItems: "center", elevation: 10 },
+    popupIconWrap: { width: sz(64), height: sz(64), borderRadius: sz(32), alignItems: "center", justifyContent: "center", marginBottom: sz(16) },
+    popupTitle: { fontSize: sz(18), fontWeight: "900", color: "#1f2a58", marginBottom: sz(8), textAlign: "center" },
+    popupMessage: { fontSize: sz(14), color: "#64748b", textAlign: "center", lineHeight: sz(22), marginBottom: sz(24) },
+    popupActionRow: { flexDirection: "row", gap: sz(12), width: "100%" },
+    popupCancelBtn: { flex: 1, height: sz(48), borderRadius: sz(12), backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
+    popupCancelBtnTxt: { color: "#7a8cc2", fontSize: sz(15), fontWeight: "800" },
+    popupSubmitBtn: { flex: 1, height: sz(48), borderRadius: sz(12), backgroundColor: "#4f7cff", alignItems: "center", justifyContent: "center" },
+    popupSubmitBtnTxt: { color: "#fff", fontSize: sz(15), fontWeight: "900" },
+    popupSingleBtn: { width: "100%", height: sz(48), borderRadius: sz(12), backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
+    popupSingleBtnTxt: { color: "#1f2a58", fontSize: sz(15), fontWeight: "900" },
+  });
+};

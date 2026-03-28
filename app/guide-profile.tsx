@@ -1,6 +1,6 @@
 /**
  * app/guide-profile.tsx
- * Quản lý Hồ sơ HDV - Responsive toàn diện, Ảnh bìa tràn viền, Dữ liệu động
+ * Quản lý Hồ sơ HDV - Bổ sung Nút Xác Thực VNeID và giữ trọn vẹn toàn bộ UI/Logic cũ
  */
 import { GuideTabBar } from "@/components/GuideTabBar";
 import { Ionicons } from "@expo/vector-icons";
@@ -53,8 +53,6 @@ export default function GuideProfile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  
-  // Tỷ lệ Responsive so với màn hình iPhone chuẩn (375px)
   const scale = width / 375;
   const s = useMemo(() => getStyles(scale), [scale]);
 
@@ -62,47 +60,53 @@ export default function GuideProfile() {
   const [form, setForm] = useState<GuideProfile>(DEFAULT_PROFILE);
   const [stats, setStats] = useState({ tours: 0, bookings: 0, rating: "4.9" });
   const [modalVisible, setModalVisible] = useState(false);
-  const [confirmPopup, setConfirmPopup] = useState<{ visible: boolean; type: "success" | "error"; title: string; message: string; }>({ visible: false, type: "success", title: "", message: "" });
-
+  const [confirmPopup, setConfirmPopup] = useState<{ visible: boolean; type: "success" | "error" | "switch"; title: string; message: string; }>({ visible: false, type: "success", title: "", message: "" });
+  
   useFocusEffect(
     useCallback(() => {
+      const loadData = async () => {
+        try {
+          let currentProfile = DEFAULT_PROFILE;
+          const rawProfile = await AsyncStorage.getItem(STORAGE_KEY);
+          if (rawProfile) {
+            currentProfile = JSON.parse(rawProfile);
+            setProfile(currentProfile);
+            setForm(currentProfile);
+          }
+          const rawTours = await AsyncStorage.getItem(TOURS_STORAGE);
+          const rawBookings = await AsyncStorage.getItem(BOOKINGS_STORAGE);
+          let tCount = 0, bCount = 0;
+          if (rawTours) {
+            const toursList = JSON.parse(rawTours);
+            tCount = toursList.filter((t: any) => t.assignedGuideNames?.includes(currentProfile.name)).length;
+          }
+          if (rawBookings) {
+            const bookingsList = JSON.parse(rawBookings);
+            bCount = bookingsList.length;
+          }
+          setStats({ tours: tCount, bookings: bCount, rating: "4.9" });
+        } catch (error) {}
+      };
       loadData();
     }, [])
   );
 
-  const loadData = async () => {
-    try {
-      let currentProfile = DEFAULT_PROFILE;
-      const rawProfile = await AsyncStorage.getItem(STORAGE_KEY);
-      if (rawProfile) {
-        currentProfile = JSON.parse(rawProfile);
-        setProfile(currentProfile);
-        setForm(currentProfile);
-      }
-
-      // Tính toán thống kê động từ Local Storage
-      const rawTours = await AsyncStorage.getItem(TOURS_STORAGE);
-      const rawBookings = await AsyncStorage.getItem(BOOKINGS_STORAGE);
-      let tCount = 0, bCount = 0;
-
-      if (rawTours) {
-        const toursList = JSON.parse(rawTours);
-        tCount = toursList.filter((t: any) => t.assignedGuideNames?.includes(currentProfile.name)).length;
-      }
-      if (rawBookings) {
-        const bookingsList = JSON.parse(rawBookings);
-        bCount = bookingsList.length; // Demo: Đếm tổng booking có trong máy
-      }
-      setStats({ tours: tCount, bookings: bCount, rating: "4.9" });
-    } catch (error) {}
-  };
-
   const handleSave = async () => {
     if (!form.name.trim()) { setConfirmPopup({visible:true, type:"error", title:"Lỗi", message:"Vui lòng điền họ tên!"}); return; }
-    setProfile(form);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(form));
+    setProfile(form);
     setModalVisible(false);
     setConfirmPopup({visible:true, type:"success", title:"Đã lưu", message:"Hồ sơ HDV đã được cập nhật thành công."});
+  };
+
+  const handleSwitchToGuest = () => {
+    setConfirmPopup({ visible: true, type: "switch", title: "Đổi tài khoản", message: "Chuyển sang giao diện của Khách hàng?" });
+  };
+
+  const executeSwitch = async () => {
+    await AsyncStorage.setItem("@current_user_role", "guest");
+    setConfirmPopup({ ...confirmPopup, visible: false });
+    setTimeout(() => { router.replace("/"); }, 200);
   };
 
   return (
@@ -111,8 +115,6 @@ export default function GuideProfile() {
       <Stack.Screen options={{ headerShown: false }} />
       
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-        
-        {/* ẢNH BÌA TRÀN VIỀN */}
         <ImageBackground source={{ uri: profile.coverUrl }} style={[s.coverImage, { paddingTop: insets.top }]}>
           <View style={s.coverOverlay}>
             <Text style={s.headerTitle}>Hồ sơ của tôi</Text>
@@ -120,20 +122,15 @@ export default function GuideProfile() {
         </ImageBackground>
 
         <View style={s.mainBody}>
-          {/* PROFILE CARD */}
           <View style={s.profileCard}>
             <View style={s.avatarWrap}>
-              {profile.avatarUrl ? (
-                <Image source={{ uri: profile.avatarUrl }} style={s.avatarImg} />
-              ) : (
-                <Text style={s.avatarTxt}>{profile.name.charAt(0)}</Text>
-              )}
+              {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={s.avatarImg} /> : <Text style={s.avatarTxt}>{(profile.name || "U").charAt(0)}</Text>}
             </View>
             <View style={s.profileInfo}>
               <Text style={s.name}>{profile.name}</Text>
               <Text style={s.subInfo}><Ionicons name="location" size={12} /> {profile.location} · {profile.experience}</Text>
               <View style={s.badgesRow}>
-                <View style={s.hdvBadge}><Ionicons name="shield-checkmark" size={12} color="#10b981" /><Text style={s.hdvBadgeTxt}>HDV Đã xác minh</Text></View>
+                <View style={s.hdvBadge}><Ionicons name="shield-checkmark" size={12} color="#10b981" /><Text style={s.hdvBadgeTxt}>HDV Hệ thống</Text></View>
                 {profile.vneidVerified && (
                   <View style={[s.hdvBadge, { backgroundColor: "#eaf0ff" }]}><Ionicons name="checkmark-circle" size={12} color="#4f7cff" /><Text style={[s.hdvBadgeTxt, { color: "#4f7cff" }]}>VNeID</Text></View>
                 )}
@@ -141,17 +138,25 @@ export default function GuideProfile() {
             </View>
           </View>
 
-          {/* VNEID CARD */}
-          {profile.vneidVerified && (
+          {/* VNEID CARD VERIFICATION LOGIC THÊM MỚI */}
+          {profile.vneidVerified ? (
             <View style={s.verificationCard}>
                 <View style={s.verifyHeader}><Ionicons name="finger-print" size={16} color="#059669" /><Text style={s.verifyHeaderTxt}>ĐỊNH DANH ĐẢM BẢO</Text></View>
                 <View style={s.verifyRow}><Text style={s.verifyLabel}>Căn cước công dân:</Text><Text style={s.verifyValue}>{profile.cccd}</Text></View>
                 <View style={s.verifyRow}><Text style={s.verifyLabel}>Ngày sinh:</Text><Text style={s.verifyValue}>{profile.dob}</Text></View>
                 <View style={s.verifyRow}><Text style={s.verifyLabel}>Học vấn:</Text><Text style={s.verifyValue}>{profile.education}</Text></View>
             </View>
+          ) : (
+            <View style={[s.verificationCard, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }]}>
+               <View style={s.verifyHeader}><Ionicons name="warning" size={16} color="#dc2626" /><Text style={[s.verifyHeaderTxt, {color: '#dc2626'}]}>CHƯA XÁC THỰC VNEID</Text></View>
+               <Text style={{color: '#ef4444', fontSize: Math.round(12 * scale), marginBottom: Math.round(12 * scale)}}>Xác thực danh tính để tăng độ uy tín, mở khóa các tính năng thanh toán và nhận được nhiều tour hơn.</Text>
+               <TouchableOpacity style={s.vneidVerifyBtn} onPress={() => router.push('/vneid-login' as any)}>
+                 <Ionicons name="scan-outline" size={16} color="#fff" />
+                 <Text style={s.vneidVerifyBtnTxt}>Xác thực VNeID ngay</Text>
+               </TouchableOpacity>
+            </View>
           )}
 
-          {/* STATS CARD (Lấy từ Local) */}
           <View style={s.statsCard}>
             <View style={s.statItem}><Ionicons name="star" size={18} color="#f59e0b" /><Text style={s.statVal}>{stats.rating}</Text><Text style={s.statLbl}>Đánh giá</Text></View>
             <View style={s.statDivider} />
@@ -160,23 +165,19 @@ export default function GuideProfile() {
             <View style={s.statItem}><Ionicons name="calendar" size={18} color="#10b981" /><Text style={s.statVal}>{stats.bookings}</Text><Text style={s.statLbl}>Booking nhận</Text></View>
           </View>
 
-          {/* EDIT BUTTON */}
           <TouchableOpacity style={s.editBtn} onPress={() => { setForm(profile); setModalVisible(true); }}>
             <Ionicons name="create-outline" size={18} color="#4f7cff" />
             <Text style={s.editBtnTxt}>Cập nhật Hồ sơ</Text>
           </TouchableOpacity>
 
-          {/* INFO DETAILS */}
           <View style={s.infoCard}>
             <Text style={s.infoCardTitle}>Giới thiệu bản thân</Text>
             <Text style={s.bioTxt}>{profile.bio || "Chưa có giới thiệu."}</Text>
-            
             <View style={s.skillBox}><Text style={s.skillTitle}>Kỹ năng chuyên môn</Text><Text style={s.skillContent}>{profile.skills}</Text></View>
             <View style={s.skillBox}><Text style={s.skillTitle}>Sở thích cá nhân</Text><Text style={s.skillContent}>{profile.hobbies}</Text></View>
             <View style={s.skillBox}><Text style={s.skillTitle}>Chứng nhận & Giải thưởng</Text><Text style={s.skillContent}>{profile.awards}</Text></View>
           </View>
 
-          {/* CHỨC NĂNG RIÊNG DÀNH CHO HDV */}
           <Text style={s.sectionTitle}>Chức năng quản lý</Text>
           {MENU_ITEMS.map((item, i) => (
             <TouchableOpacity key={i} style={s.menuItem} onPress={() => router.push(item.route as any)}>
@@ -185,6 +186,17 @@ export default function GuideProfile() {
               <Ionicons name="chevron-forward" size={18} color="#c0cbe8" />
             </TouchableOpacity>
           ))}
+
+          <View style={{ backgroundColor: "#fff", borderRadius: Math.round(16 * scale), borderWidth: 1, borderColor: "#e4ebff", padding: Math.round(16 * scale), marginBottom: Math.round(20 * scale), marginTop: Math.round(10 * scale) }}>
+            <Text style={{ color: "#1f2a58", fontWeight: "900", fontSize: Math.round(15 * scale), marginBottom: Math.round(8 * scale) }}>Cài đặt tài khoản</Text>
+            <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderRadius: 12, paddingHorizontal: 10, marginBottom: 6 }} onPress={handleSwitchToGuest}>
+              <View style={{ width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#dcfce7" }}><Ionicons name="swap-horizontal" size={22} color="#10b981" /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#1f2a58", fontWeight: "800", fontSize: 14 }}>Chuyển sang chế độ Khách</Text>
+                <Text style={{ color: "#7a8cc2", fontSize: 12, marginTop: 2 }}>Đặt tour, tìm HDV khác</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity style={s.logoutBtn} onPress={async () => { await AsyncStorage.removeItem("@current_user_role"); router.replace("/login"); }}>
             <Ionicons name="log-out-outline" size={20} color="#ef4444" />
@@ -209,27 +221,21 @@ export default function GuideProfile() {
               <Text style={s.inputLabel}>URL Ảnh bìa (Cover)</Text>
               <TextInput style={s.input} value={form.coverUrl} onChangeText={(v) => setForm(p => ({ ...p, coverUrl: v }))} placeholder="https://..." />
 
-              <Text style={[s.inputLabel, { color: "#059669", marginTop: 10 }]}>Thông tin định danh</Text>
+              <Text style={[s.inputLabel, { color: "#059669", marginTop: 10 }]}>Thông tin định danh (Dành cho Test)</Text>
               <View style={{ flexDirection: "row", gap: 10 }}>
                  <View style={{ flex: 1 }}><TextInput style={s.input} value={form.cccd} onChangeText={(v) => setForm(p => ({ ...p, cccd: v }))} placeholder="Số CCCD" keyboardType="numeric" /></View>
                  <View style={{ flex: 1 }}><TextInput style={s.input} value={form.dob} onChangeText={(v) => setForm(p => ({ ...p, dob: v }))} placeholder="Ngày sinh" /></View>
               </View>
               <TextInput style={s.input} value={form.education} onChangeText={(v) => setForm(p => ({ ...p, education: v }))} placeholder="Trường học / Chuyên ngành..." />
-              
               <View style={s.divider} />
-
               <Text style={s.inputLabel}>Họ và tên</Text>
               <TextInput style={s.input} value={form.name} onChangeText={(v) => setForm(p => ({ ...p, name: v }))} />
-              
               <Text style={s.inputLabel}>Giới thiệu (Kinh nghiệm, thế mạnh)</Text>
               <TextInput style={[s.input, { minHeight: 80, textAlignVertical: "top" }]} multiline value={form.bio} onChangeText={(v) => setForm(p => ({ ...p, bio: v }))} />
-              
               <Text style={s.inputLabel}>Kỹ năng</Text>
               <TextInput style={s.input} value={form.skills} onChangeText={(v) => setForm(p => ({ ...p, skills: v }))} />
-
               <Text style={s.inputLabel}>Sở thích cá nhân</Text>
               <TextInput style={s.input} value={form.hobbies} onChangeText={(v) => setForm(p => ({ ...p, hobbies: v }))} />
-
               <Text style={s.inputLabel}>Chứng nhận & Giải thưởng</Text>
               <TextInput style={[s.input, { minHeight: 60, textAlignVertical: "top" }]} multiline value={form.awards} onChangeText={(v) => setForm(p => ({ ...p, awards: v }))} />
 
@@ -242,14 +248,20 @@ export default function GuideProfile() {
         </View>
       </Modal>
 
-      {/* POPUP THÔNG BÁO */}
       <Modal visible={confirmPopup.visible} transparent animationType="fade">
         <View style={s.confirmOverlay}>
           <View style={s.confirmBox}>
-            <Ionicons name={confirmPopup.type === "success" ? "checkmark-circle" : "warning"} size={48} color={confirmPopup.type === "success" ? "#10b981" : "#ef4444"} />
+            <Ionicons name={confirmPopup.type === "switch" ? "swap-horizontal" : confirmPopup.type === "success" ? "checkmark-circle" : "warning"} size={48} color={confirmPopup.type === "switch" ? "#10b981" : confirmPopup.type === "success" ? "#10b981" : "#ef4444"} />
             <Text style={s.confirmTitle}>{confirmPopup.title}</Text>
             <Text style={s.confirmMessage}>{confirmPopup.message}</Text>
-            <TouchableOpacity style={s.confirmSingleBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}><Text style={s.confirmSingleBtnTxt}>Đóng</Text></TouchableOpacity>
+            {confirmPopup.type === "switch" ? (
+              <View style={{ flexDirection: "row", gap: 10, width: "100%" }}>
+                <TouchableOpacity style={{ flex: 1, height: 44, borderRadius: 11, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" }} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}><Text style={{ color: "#7a8cc2", fontWeight: "700" }}>Hủy</Text></TouchableOpacity>
+                <TouchableOpacity style={{ flex: 1, height: 44, borderRadius: 11, backgroundColor: "#10b981", alignItems: "center", justifyContent: "center" }} onPress={executeSwitch}><Text style={{ color: "#fff", fontWeight: "800" }}>Đổi ngay</Text></TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.confirmSingleBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}><Text style={s.confirmSingleBtnTxt}>Đóng</Text></TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
@@ -259,7 +271,6 @@ export default function GuideProfile() {
   );
 }
 
-// BỘ STYLE RESPONSIVE (Dùng chung cho cả Public Profile)
 export const getStyles = (scale: number) => {
   const sz = (size: number) => Math.round(size * scale);
   return StyleSheet.create({
@@ -270,7 +281,7 @@ export const getStyles = (scale: number) => {
     
     mainBody: { paddingHorizontal: sz(16), marginTop: sz(-50) },
     profileCard: { backgroundColor: "#fff", borderRadius: sz(20), padding: sz(16), flexDirection: "row", alignItems: "center", gap: sz(14), marginBottom: sz(16), elevation: 5, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10 },
-    avatarWrap: { width: sz(76), height: sz(76), borderRadius: sz(24), backgroundColor: "#4f7cff", alignItems: "center", justifyContent: "center", borderWidth: 3, borderColor: "#fff", elevation: 2 },
+    avatarWrap: { width: sz(76), height: sz(76), borderRadius: sz(24), backgroundColor: "#4f7cff", alignItems: "center", justifyContent: "center", borderWidth: 3, borderColor: "#fff", elevation: 2, overflow: 'hidden' },
     avatarImg: { width: "100%", height: "100%", borderRadius: sz(21) },
     avatarTxt: { color: "#fff", fontSize: sz(28), fontWeight: "900" },
     profileInfo: { flex: 1 },
@@ -286,7 +297,9 @@ export const getStyles = (scale: number) => {
     verifyRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: sz(4) },
     verifyLabel: { color: "#065f46", fontSize: sz(12) },
     verifyValue: { color: "#064e3b", fontSize: sz(12), fontWeight: "700" },
-    
+    vneidVerifyBtn: { backgroundColor: '#ef4444', borderRadius: sz(10), paddingVertical: sz(10), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(6) },
+    vneidVerifyBtnTxt: { color: '#fff', fontWeight: '800', fontSize: sz(13) },
+
     statsCard: { flexDirection: "row", backgroundColor: "#fff", borderRadius: sz(16), paddingVertical: sz(16), marginBottom: sz(16), elevation: 2 },
     statItem: { flex: 1, alignItems: "center" },
     statDivider: { width: 1, backgroundColor: "#f0f4ff" },
@@ -310,7 +323,6 @@ export const getStyles = (scale: number) => {
     logoutBtn: { borderRadius: sz(16), backgroundColor: "#fee2e2", padding: sz(16), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: sz(10), marginTop: sz(10) },
     logoutTxt: { color: "#ef4444", fontWeight: "900", fontSize: sz(15) },
     
-    // Modal Styles
     modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "flex-end" },
     modalContent: { backgroundColor: "#fff", borderTopLeftRadius: sz(24), borderTopRightRadius: sz(24), maxHeight: "90%" },
     modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: sz(20), borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
