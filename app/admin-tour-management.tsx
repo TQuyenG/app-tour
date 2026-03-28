@@ -31,6 +31,7 @@ type TourStatus = "active" | "full" | "draft";
 interface AppliedGuide { id: string; name: string; note: string; }
 
 interface Tour {
+<<<<<<< Updated upstream
   id: string; name: string; category: string; duration: string;
   price: string; priceRaw: number;
   rating: number; reviewCount: number;
@@ -39,6 +40,25 @@ interface Tour {
   description: string; // Thêm trường mô tả chi tiết
   assignedGuideNames: string[];
   appliedGuides: AppliedGuide[]; 
+=======
+  id: string;
+  name: string;
+  category: string;
+  duration: string;
+  price: string;
+  priceRaw: number;
+  rating: number;
+  seats: number;
+  seatsLeft: number;
+  departure: string;
+  status: TourStatus;
+  description: string;
+  tags: string[];
+  color: string;
+  date: string;
+  assignedGuideIds: string[];   // ← ID các HDV được phân công
+  assignedGuideNames: string[]; // ← Tên để hiển thị
+>>>>>>> Stashed changes
 }
 
 const CATEGORIES = ["Tất cả", "Biển đảo", "Núi rừng", "Văn hóa", "Nghỉ dưỡng", "Phiêu lưu", "Gia đình"];
@@ -49,6 +69,7 @@ const generateSeedTours = (): Tour[] => {
     let assigned: string[] = [];
     let applied: AppliedGuide[] = [];
 
+<<<<<<< Updated upstream
     // Giả lập một số tour có HDV ứng tuyển hoặc đã phân công để test
     if (index === 0) assigned = [GUIDES[0].name];
     if (index === 1) applied = [{ id: GUIDES[1].id, name: GUIDES[1].name, note: "Tôi chuyên dẫn tuyến này, thuộc từng ngóc ngách." }];
@@ -59,6 +80,100 @@ const generateSeedTours = (): Tour[] => {
 
     return {
       id: t.id,
+=======
+const CATEGORIES = [
+  "Biển đảo",
+  "Cao nguyên",
+  "Di sản",
+  "Núi rừng",
+  "Thành phố",
+];
+const STATUS_OPTIONS: TourStatus[] = ["active", "full", "draft"];
+const STATUS_MAP = {
+  active: { label: "Đang mở", color: "#16a34a", bg: "#dcfce7" },
+  full: { label: "Hết chỗ", color: "#dc2626", bg: "#fee2e2" },
+  draft: { label: "Nháp", color: "#d97706", bg: "#fef9c3" },
+};
+const EMPTY: Omit<Tour, "id"> = {
+  name: "",
+  category: "Biển đảo",
+  duration: "",
+  price: "",
+  priceRaw: 0,
+  rating: 5,
+  seats: 10,
+  seatsLeft: 10,
+  departure: "",
+  status: "draft",
+  description: "",
+  tags: [],
+  color: "#99bbff",
+  date: "",
+  assignedGuideIds: [],
+  assignedGuideNames: [],
+};
+
+function formatPrice(raw: number | string): string {
+  if (typeof raw === "number" && raw > 0)
+    return `${raw.toLocaleString("vi-VN")}đ`;
+  const s = String(raw);
+  if (s.includes("đ")) return s;
+  const n = Number(s.replace(/\./g, "").replace("đ", "").trim());
+  return n > 0 ? `${n.toLocaleString("vi-VN")}đ` : s;
+}
+
+export default function AdminTourManagement() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [tours, setTours] = useState<Tour[]>([]);
+  const [search, setSearch] = useState("");
+  const [selSt, setSelSt] = useState<"all" | TourStatus>("all");
+  const [selCat, setSelCat] = useState("Tất cả");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editing, setEditing] = useState<Tour | null>(null);
+  const [form, setForm] = useState<Omit<Tour, "id">>(EMPTY);
+  const [saving, setSaving] = useState(false);
+  const [allGuides, setAllGuides] = useState<{id:string;name:string;status?:string}[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@app_guides').then(raw => {
+      if (raw) {
+        const gs = JSON.parse(raw).filter((g:any) => g.status !== 'inactive');
+        setAllGuides(gs);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY)
+      .then((raw) => {
+        if (raw) {
+          setTours(JSON.parse(raw));
+        } else {
+          setTours(SEED);
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED));
+        }
+      })
+      .catch(() => setTours(SEED));
+  }, []);
+
+  const persist = useCallback(async (data: Tour[]) => {
+    setTours(data);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(
+      () => {},
+    );
+  }, []);
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm(EMPTY);
+    setModalVisible(true);
+  };
+  const openEdit = (t: Tour) => {
+    setEditing(t);
+    setForm({
+>>>>>>> Stashed changes
       name: t.name,
       category: t.category,
       duration: t.duration,
@@ -71,6 +186,7 @@ const generateSeedTours = (): Tour[] => {
       status: "active",
       tags: t.tags,
       color: t.color,
+<<<<<<< Updated upstream
       description: t.summary || "Chưa có mô tả chi tiết.", // Lấy summary làm description
       assignedGuideNames: assigned,
       appliedGuides: applied,
@@ -154,6 +270,12 @@ export default function AdminTourManagementScreen() {
       });
       setPriceInput("");
     }
+=======
+      date: t.date,
+      assignedGuideIds: t.assignedGuideIds || [],
+      assignedGuideNames: t.assignedGuideNames || [],
+    });
+>>>>>>> Stashed changes
     setModalVisible(true);
   };
 
@@ -410,9 +532,111 @@ export default function AdminTourManagementScreen() {
                 {(!editingTour.assignedGuideNames || editingTour.assignedGuideNames.length === 0) && <Text style={{color: "#94a8d8", fontSize: 13, fontStyle: "italic", marginBottom: 4}}>Chưa cấp quyền dẫn tour cho ai.</Text>}
               </View>
 
+<<<<<<< Updated upstream
               <TouchableOpacity style={styles.saveBtn} onPress={saveTour}>
                 <Ionicons name="save" size={20} color="#fff" />
                 <Text style={styles.saveBtnTxt}>Lưu Thông tin</Text>
+=======
+              <FL t="Mô tả ngắn" />
+              <TextInput
+                style={[s.input, { minHeight: 76, paddingTop: 12 }]}
+                value={form.description}
+                onChangeText={(v) => setF("description", v)}
+                placeholder="Mô tả điểm nổi bật..."
+                multiline
+                numberOfLines={3}
+                placeholderTextColor="#b0bdd8"
+                textAlignVertical="top"
+              />
+
+              <FL t="📋 Phân công HDV (có thể chọn nhiều)" />
+              {allGuides.length === 0 ? (
+                <Text style={{ color: '#b0bdd8', fontSize: 12, marginBottom: 8 }}>
+                  Chưa có HDV nào trong hệ thống
+                </Text>
+              ) : (
+                <View style={{ gap: 6, marginBottom: 4 }}>
+                  {allGuides.map(g => {
+                    const selected = (form.assignedGuideIds || []).includes(g.id);
+                    return (
+                      <TouchableOpacity
+                        key={g.id}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 10,
+                          backgroundColor: selected ? '#eaf0ff' : '#f8faff',
+                          borderRadius: 10, padding: 10,
+                          borderWidth: 1,
+                          borderColor: selected ? '#4f7cff' : '#e4ebff',
+                        }}
+                        onPress={() => {
+                          const cur = form.assignedGuideIds || [];
+                          const curNames = form.assignedGuideNames || [];
+                          if (selected) {
+                            setForm(p => ({
+                              ...p,
+                              assignedGuideIds: cur.filter(id => id !== g.id),
+                              assignedGuideNames: curNames.filter(n => n !== g.name),
+                            }));
+                          } else {
+                            setForm(p => ({
+                              ...p,
+                              assignedGuideIds: [...cur, g.id],
+                              assignedGuideNames: [...curNames, g.name],
+                            }));
+                          }
+                        }}
+                      >
+                        <View style={{
+                          width: 22, height: 22, borderRadius: 6,
+                          backgroundColor: selected ? '#4f7cff' : '#e4ebff',
+                          alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {selected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: '#1f2a58', fontWeight: '700', fontSize: 13 }}>{g.name}</Text>
+                          <Text style={{ color: '#7a8cc2', fontSize: 11 }}>
+                            {(g as any).location || ''}{(g as any).experience ? ` · ${(g as any).experience}` : ''}
+                          </Text>
+                        </View>
+                        {selected && (
+                          <View style={{ backgroundColor: '#4f7cff', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>Được chọn</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+              {(form.assignedGuideIds || []).length > 0 && (
+                <View style={{ backgroundColor: '#dcfce7', borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                  <Text style={{ color: '#16a34a', fontSize: 11, fontWeight: '700' }}>
+                    ✅ Đã chọn {form.assignedGuideIds.length} HDV: {form.assignedGuideNames.join(', ')}
+                  </Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[s.saveBtn, saving && { opacity: 0.6 }]}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                <Ionicons
+                  name={
+                    editing ? "checkmark-circle-outline" : "add-circle-outline"
+                  }
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={s.saveBtnTxt}>
+                  {saving
+                    ? "Đang lưu..."
+                    : editing
+                      ? "Lưu thay đổi"
+                      : "Thêm tour"}
+                </Text>
+>>>>>>> Stashed changes
               </TouchableOpacity>
             </ScrollView>
           </KeyboardAvoidingView>

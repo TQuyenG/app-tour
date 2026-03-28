@@ -4,8 +4,13 @@
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  getSharedChatSessions,
+  staffSendMessage, staffMarkChatRead,
+  type SharedChatSession, type SharedChatMessage,
+} from "@/constants/data-store";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -244,16 +249,17 @@ export default function StaffLivechat() {
   const [showStarredOnly, setShowStarredOnly]   = useState(false);
 
   useFocusEffect(useCallback(() => {
-    AsyncStorage.getItem("@staff_chats_v3")
-      .then(raw => {
-        if (raw) setChats(JSON.parse(raw));
-        else {
-          setChats(SEED_CHATS);
-          AsyncStorage.setItem("@staff_chats_v3", JSON.stringify(SEED_CHATS)).catch(() => {});
-        }
-      })
-      .catch(() => setChats(SEED_CHATS));
-  }, []));
+  const loadChats = async () => {
+    try {
+      const list = await getSharedChatSessions();
+      const mapped = list.map(s => ({ ...s, unread: s.unreadForStaff }));
+      setChats(mapped as any);
+    } catch { setChats([]); }
+  };
+  loadChats();
+  const interval = setInterval(loadChats, 3000);
+  return () => clearInterval(interval);
+}, []));
 
   const persist = async (data: ChatSession[]) => {
     setChats(data);
@@ -261,27 +267,49 @@ export default function StaffLivechat() {
   };
 
   const openChat = (chat: ChatSession) => {
-    const updated = chats.map(c => c.id === chat.id ? { ...c, unread: 0 } : c);
-    persist(updated);
-    setSelected({ ...chat, unread: 0 });
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
-  };
+  const updated = chats.map(c => c.id === chat.id ? { ...c, unread: 0 } : c);
+  setChats(updated);
+  staffMarkChatRead(chat.id);
+  setSelected({ ...chat, unread: 0 });
+  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
+};
+
+  // Poll khi đang xem chat detail — nhận tin guest mới realtime
+  useEffect(() => {
+    if (!selected) return;
+    const pollDetail = setInterval(async () => {
+  try {
+    const list = await getSharedChatSessions();
+    const mapped = list.map(s => ({ ...s, unread: s.unreadForStaff })) as any as ChatSession[];
+    const latest = mapped.find(c => c.id === selected.id);
+    if (latest && latest.messages.length > selected.messages.length) {
+      setSelected({ ...latest, unread: 0 });
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    }
+  } catch {}
+}, 3000);
+    return () => clearInterval(pollDetail);
+  }, [selected?.id, selected?.messages.length]);
 
   const sendMsg = async (text?: string) => {
-    const msgText = text ?? input.trim();
-    if (!msgText || !selected) return;
-    const msg: ChatMessage = { from: "staff", text: msgText, time: nowStr() };
-    const updSess: ChatSession = {
-      ...selected,
-      messages: [...selected.messages, msg],
-      lastMessage: msgText,
-    };
-    setSelected(updSess);
-    await persist(chats.map(c => c.id === selected.id ? updSess : c));
-    setInput("");
-    setShowQuickReplies(false);
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+  const msgText = text ?? input.trim();
+  if (!msgText || !selected) return;
+  const msg: ChatMessage = { from: "staff", text: msgText, time: nowStr() };
+  const updSess: ChatSession = {
+    ...selected,
+    messages: [...selected.messages, msg],
+    lastMessage: msgText,
   };
+  setSelected(updSess);
+  setChats(prev => prev.map(c => c.id === selected.id ? updSess : c));
+
+  // Sync về shared storage để guest thấy tin nhắn mới
+  await staffSendMessage(selected.id, msgText);
+
+  setInput("");
+  setShowQuickReplies(false);
+  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+};
 
   const resolveChat = async () => {
     if (!selected) return;

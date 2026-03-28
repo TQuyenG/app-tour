@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const STAFF_TABS = [
   { icon: "home-outline",         iconActive: "home",         label: "Tổng quan",  route: "/staff-home" },
   { icon: "receipt-outline",      iconActive: "receipt",      label: "Booking",    route: "/staff-booking-management" },
-  { icon: "refresh-outline",      iconActive: "refresh",      label: "Hoàn tiền",  route: "/staff-refund-management" },
+  { icon: "warning-outline",      iconActive: "warning",      label: "Khiếu nại",  route: "/staff-complaints" },
   { icon: "chatbubbles-outline",  iconActive: "chatbubbles",  label: "Live chat",  route: "/staff-livechat" },
   { icon: "person-outline",       iconActive: "person",       label: "Hồ sơ",      route: "/staff-profile" },
 ] as const;

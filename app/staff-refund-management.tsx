@@ -7,7 +7,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  Alert, Modal, ScrollView, StatusBar, StyleSheet,
+  Alert, Image, Modal, ScrollView, StatusBar, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,8 +22,23 @@ interface RefundRequest {
   createdAt: string; evidence?: string; priority: "high" | "normal" | "low";
 }
 
+const TOUR_IMAGES: Record<string, string> = {
+  "rf001": "https://images.unsplash.com/photo-1614082242765-7c98ca0f3df3?w=400&q=80",
+  "rf002": "https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=400&q=80",
+  "rf003": "https://images.unsplash.com/photo-1506461883276-594a12b11cf3?w=400&q=80",
+  "rf004": "https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=400&q=80",
+  "rf005": "https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=400&q=80",
+  "rf006": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80",
+  "rf007": "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=400&q=80",
+  "rf008": "https://images.unsplash.com/photo-1559494007-9f5847c49d94?w=400&q=80",
+  "rf009": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80",
+  "rf010": "https://images.unsplash.com/photo-1596178060671-7a80dc8059ea?w=400&q=80",
+  "rf011": "https://images.unsplash.com/photo-1504214208698-ea1916a2195a?w=400&q=80",
+  "rf012": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=80",
+};
+
 const SEED_REFUNDS: RefundRequest[] = [
-  { id: "rf001", bookingId: "BK001001", tourName: "Đà Lạt 3N2Đ - Săn mây & Chill",        guestName: "Nguyễn An",     guestPhone: "0901 234 567", amount: 2990000, refundPercent: 100, feeAmount: 0,      reason: "Bận việc đột xuất gia đình, không thể đi được", category: "Bất khả kháng",        status: "pending",    createdAt: new Date(Date.now() - 3600000).toISOString(),   priority: "high",   evidence: "Giấy xác nhận bệnh viện" },
+  { id: "rf001", bookingId: "BK001001", tourName: "Đà Lạt 3N2Đ - Thành phố ngàn hoa", guestName: "Nguyễn Văn A",  guestPhone: "0901 234 567", amount: 2990000, refundPercent: 50,  feeAmount: 1495000, reason: "Khách bị sốt cao, có giấy chứng nhận bệnh viện", category: "Bất khả kháng",       status: "pending",    createdAt: new Date(Date.now() - 3600000).toISOString(),   priority: "normal", evidence: "Giấy ra viện, đơn thuốc bác sĩ" },
   { id: "rf002", bookingId: "BK001002", tourName: "Phú Quốc 4N3Đ - Resort biển xanh",      guestName: "Trần Văn B",    guestPhone: "0912 345 678", amount: 4690000, refundPercent: 80,  feeAmount: 938000, reason: "HDV không đúng hẹn, đến trễ 2 tiếng so với lịch", category: "Lỗi nhà cung cấp",    status: "pending",    createdAt: new Date(Date.now() - 7200000).toISOString(),   priority: "high" },
   { id: "rf003", bookingId: "BK001003", tourName: "Sapa 3N2Đ - Mùa lúa chín",              guestName: "Lê Thị C",      guestPhone: "0933 111 222", amount: 3590000, refundPercent: 100, feeAmount: 0,      reason: "Tour bị hủy do thời tiết xấu, mưa lớn liên tục", category: "Thiên tai / Thời tiết", status: "approved",   createdAt: new Date(Date.now() - 86400000).toISOString(),  priority: "normal" },
   { id: "rf004", bookingId: "BK001004", tourName: "Hội An 2N1Đ - Phố cổ đèn lồng",        guestName: "Phạm Quốc D",   guestPhone: "0944 222 333", amount: 2300000, refundPercent: 0,   feeAmount: 0,      reason: "Đổi ý không muốn đi nữa, hủy trước 1 ngày", category: "Đổi ý khách",          status: "rejected",   createdAt: new Date(Date.now() - 172800000).toISOString(), priority: "low" },
@@ -273,19 +288,21 @@ export default function StaffRefundManagement() {
             const netRefund = Math.round((r.amount || 0) * (Number(r.refundPercent) || 0) / 100);
             return (
               <TouchableOpacity key={r.id} style={[s.card, r.priority === "high" && r.status === "pending" && s.cardHighPriority]} onPress={() => openDetail(r)} activeOpacity={0.8}>
-                {/* Card Header */}
-                <View style={s.cardHeader}>
-                  <View style={{ flex: 1 }}>
-                    <View style={s.cardIdRow}>
-                      <Text style={s.refundId}>#{r.id}</Text>
-                      <Text style={s.bookingId}>→ {r.bookingId}</Text>
+                {/* Ảnh tour */}
+                <View style={s.cardImgWrap}>
+                  <Image
+                    source={{ uri: TOUR_IMAGES[r.id] || "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=400&q=80" }}
+                    style={s.cardImg}
+                    resizeMode="cover"
+                  />
+                  <View style={s.cardImgOverlay} />
+                  <View style={s.cardImgBadgeRow}>
+                    <View style={[s.priBadgeFloat, { backgroundColor: (PRIORITY_META[r.priority] ?? PRIORITY_META.normal).bg }]}>
+                      <Text style={[s.priBadgeTxt, { color: (PRIORITY_META[r.priority] ?? PRIORITY_META.normal).color }]}>
+                        {(PRIORITY_META[r.priority] ?? PRIORITY_META.normal).label}
+                      </Text>
                     </View>
-                  </View>
-                  <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-                    <View style={[s.priBadge, { backgroundColor: priMeta.bg }]}>
-                      <Text style={[s.priBadgeTxt, { color: priMeta.color }]}>{priMeta.label}</Text>
-                    </View>
-                    <View style={[s.statusBadge, {
+                    <View style={[s.statusBadgeFloat, {
                       backgroundColor: r.status === "pending" ? "#fef9c3" : r.status === "approved" ? "#dcfce7" : r.status === "processing" ? "#eaf0ff" : "#fee2e2"
                     }]}>
                       <Text style={[s.statusTxt, {
@@ -295,6 +312,14 @@ export default function StaffRefundManagement() {
                       </Text>
                     </View>
                   </View>
+                  <View style={s.cardImgBottom}>
+                    <Text style={s.cardImgId}>#{r.id} → {r.bookingId}</Text>
+                  </View>
+                </View>
+
+                {/* Card Header — chỉ hiện tên tour */}
+                <View style={s.cardHeader}>
+                  <View style={{ flex: 1 }} />
                 </View>
 
                 <Text style={s.tourName} numberOfLines={1}>{r.tourName}</Text>
@@ -613,7 +638,7 @@ const s = StyleSheet.create({
   content:          { padding: 14, paddingTop: 10 },
   emptyCard:        { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 40, alignItems: "center", gap: 10 },
   emptyTxt:         { color: "#7a8cc2", fontWeight: "600" },
-  card:             { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, marginBottom: 10 },
+  card:             { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, marginBottom: 10, overflow: "hidden", shadowColor: "#a0b4e8", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 3 },
   cardHighPriority: { borderLeftWidth: 3, borderLeftColor: "#dc2626" },
   cardHeader:       { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 8 },
   cardIdRow:        { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -640,6 +665,14 @@ const s = StyleSheet.create({
   actionRow:        { flexDirection: "row", gap: 8, marginTop: 4 },
   actionBtn:        { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, paddingVertical: 10 },
   actionTxt:        { fontSize: 12, fontWeight: "700" },
+  cardImgWrap:      { borderRadius: 0, overflow: "hidden", height: 130, marginBottom: 0, marginHorizontal: -14, marginTop: -14 },
+  cardImg:          { width: "100%", height: "100%" },
+  cardImgOverlay:   { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,20,60,0.32)" },
+  cardImgBadgeRow:  { position: "absolute", top: 10, left: 12, right: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  priBadgeFloat:    { borderRadius: 7, paddingHorizontal: 8, paddingVertical: 4 },
+  statusBadgeFloat: { borderRadius: 8, paddingHorizontal: 9, paddingVertical: 4 },
+  cardImgBottom:    { position: "absolute", bottom: 10, left: 12 },
+  cardImgId:        { color: "#fff", fontSize: 11, fontWeight: "700", opacity: 0.9 },
 });
 
 const sf = StyleSheet.create({

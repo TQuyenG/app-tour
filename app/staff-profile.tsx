@@ -12,11 +12,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StaffTabBar } from "@/components/StaffTabBar";
 
 const MENU_ITEMS = [
-  { icon: "receipt-outline",     label: "Quản lý Booking",   route: "/staff-booking-management",  color: "#2856d6" },
-  { icon: "refresh-outline",     label: "Xử lý Hoàn tiền",  route: "/staff-refund-management",   color: "#d97706" },
-  { icon: "chatbubbles-outline", label: "Live Chat",          route: "/staff-livechat",            color: "#16a34a" },
-  { icon: "ticket-outline",      label: "Gửi Voucher",        route: "/staff-voucher-send",        color: "#f59e0b" },
-  { icon: "flag-outline",        label: "Kiểm duyệt Review", route: "/staff-review-moderation",  color: "#dc2626" },
+  { icon: "receipt-outline",     label: "Quản lý Booking",        route: "/staff-booking-management",  color: "#2856d6" },
+  { icon: "refresh-outline",     label: "Xử lý Hoàn tiền",       route: "/staff-refund-management",   color: "#d97706" },
+  { icon: "warning-outline",     label: "Khiếu nại & Tranh chấp", route: "/staff-complaints",          color: "#dc2626" },
+  { icon: "chatbubbles-outline", label: "Live Chat",               route: "/staff-livechat",            color: "#16a34a" },
+  { icon: "ticket-outline",      label: "Gửi Voucher",             route: "/staff-voucher-send",        color: "#f59e0b" },
+  { icon: "flag-outline",        label: "Kiểm duyệt Review",      route: "/staff-review-moderation",  color: "#dc2626" },
 ] as const;
 
 export default function StaffProfile() {

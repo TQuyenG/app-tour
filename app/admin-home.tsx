@@ -23,7 +23,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // Dữ liệu fallback
 import { TOURS, GUIDES } from "@/constants/travel-data";
 
+<<<<<<< Updated upstream
 const { width: SW } = Dimensions.get("window");
+=======
+const DRAWER_ITEMS = [
+  { icon: "home",                label: "Trang chủ",        route: "/admin-home" },
+  { icon: "map-outline",         label: "Quản lý Tour",     route: "/admin-tour-management" },
+  { icon: "people-outline",      label: "Quản lý HDV",      route: "/admin-guide-management" },
+  { icon: "person-add-outline",  label: "Duyệt đăng ký HDV",route: "/admin-guide-requests" },
+  { icon: "person-circle-outline",label: "Quản lý Users",   route: "/admin-users" },
+  { icon: "ticket-outline",      label: "Voucher",           route: "/admin-voucher-management" },
+  { icon: "flash-outline",       label: "Flash Sale",        route: "/admin-flash-sale" },
+  { icon: "image-outline",       label: "Banner QC",         route: "/admin-banner" },
+  { icon: "cash-outline",        label: "Commission",        route: "/admin-commission" },
+  { icon: "refresh-circle-outline", label: "Hoàn tiền",     route: "/admin-refund-management" },
+  { icon: "warning-outline",     label: "Khiếu nại",         route: "/admin-complaints" },
+  { icon: "bar-chart-outline",   label: "Báo cáo",           route: "/admin-report" },
+  { icon: "settings-outline",    label: "Cài đặt hệ thống", route: "/admin-settings" },
+  { icon: "person-outline",      label: "Profile",           route: "/admin-profile" },
+];
+>>>>>>> Stashed changes
 
 const STORAGE_KEYS = {
   TOURS: "@app_tours",
@@ -110,10 +129,107 @@ export default function AdminHomeScreen() {
             <Text style={styles.dateTxt}>Hôm nay là một ngày tuyệt vời!</Text>
           </View>
         </View>
+<<<<<<< Updated upstream
         <TouchableOpacity style={styles.notiBtn} activeOpacity={0.7} onPress={() => router.push("/admin-complaints")}>
           <Ionicons name="notifications-outline" size={24} color="#1f2a58" />
           <View style={styles.notiBadge} />
         </TouchableOpacity>
+=======
+
+        {/* Quick Actions */}
+        <Text style={styles.sectionTitle}>Thao tác nhanh</Text>
+        <View style={styles.quickGrid}>
+          {[
+            { icon: "add-circle-outline",  label: "Thêm Tour",    color: "#4f7cff", bg: "#eef2ff", route: "/admin-tour-management" },
+            { icon: "person-add-outline",  label: "Duyệt HDV",    color: "#22c55e", bg: "#f0fdf4", route: "/admin-guide-requests" },
+            { icon: "flash-outline",       label: "Flash Sale",    color: "#ef4444", bg: "#fff1f2", route: "/admin-flash-sale" },
+            { icon: "ticket-outline",      label: "Tạo Voucher",  color: "#f59e0b", bg: "#fffbeb", route: "/admin-voucher-management" },
+            { icon: "person-circle-outline",label: "Users",        color: "#06b6d4", bg: "#ecfeff", route: "/admin-users" },
+            { icon: "warning-outline",     label: "Khiếu nại",    color: "#dc2626", bg: "#fef2f2", route: "/admin-complaints" },
+            { icon: "image-outline",       label: "Banner",        color: "#8b5cf6", bg: "#f5f3ff", route: "/admin-banner" },
+            { icon: "cash-outline",        label: "Commission",   color: "#16a34a", bg: "#f0fdf4", route: "/admin-commission" },
+            { icon: "refresh-circle-outline", label: "Hoàn tiền", color: "#dc2626", bg: "#fff1f2", route: "/admin-refund-management" },
+            { icon: "settings-outline",    label: "Cài đặt",      color: "#64748b", bg: "#f8fafc", route: "/admin-settings" },
+            { icon: "download-outline",    label: "Báo cáo",      color: "#a855f7", bg: "#fdf4ff", route: "/admin-report" },
+          ].map((q, i) => (
+            <TouchableOpacity
+              key={i}
+              style={[styles.quickCard, { backgroundColor: q.bg }]}
+              onPress={() => router.push(q.route as any)}
+            >
+              <Ionicons name={q.icon as any} size={24} color={q.color} />
+              <Text style={[styles.quickLabel, { color: q.color }]}>
+                {q.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Recent Activity */}
+        <Text style={styles.sectionTitle}>Hoạt động gần đây</Text>
+        <View style={styles.activityCard}>
+          {RECENT_ACTIVITIES.map((a, i) => (
+            <View
+              key={i}
+              style={[
+                styles.activityRow,
+                i < RECENT_ACTIVITIES.length - 1 && styles.activityBorder,
+              ]}
+            >
+              <View
+                style={[
+                  styles.activityDot,
+                  { backgroundColor: a.color + "22" },
+                ]}
+              >
+                <Ionicons name={a.icon as any} size={16} color={a.color} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.activityText}>{a.text}</Text>
+                <Text style={styles.activityTime}>{a.time}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <View style={{ height: 90 }} />
+      </ScrollView>
+
+      {/* ── Bottom Tab Bar ── */}
+      <View
+        style={[
+          styles.tabBar,
+          { paddingBottom: insets.bottom > 0 ? insets.bottom : 8 },
+        ]}
+      >
+        {BOTTOM_TABS.map((tab, i) => {
+          const active = activeTab === i;
+          return (
+            <TouchableOpacity
+              key={i}
+              style={styles.tabItem}
+              onPress={() => {
+                setActiveTab(i);
+                router.push(tab.route as any);
+              }}
+              activeOpacity={0.75}
+            >
+              <View
+                style={[styles.tabIconWrap, active && styles.tabIconActive]}
+              >
+                <Ionicons
+                  name={tab.icon as any}
+                  size={20}
+                  color={active ? "#fff" : "#94a8d8"}
+                />
+              </View>
+              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+>>>>>>> Stashed changes
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

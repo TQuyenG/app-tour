@@ -111,9 +111,34 @@ export default function AdminVoucherManagementScreen() {
   const [pickerField, setPickerField] = useState<"startDate" | "endDate">("startDate");
   const [pickerDate, setPickerDate] = useState(new Date());
 
+<<<<<<< Updated upstream
   const [confirmPopup, setConfirmPopup] = useState<{
     visible: boolean; type: "distribute" | "delete" | "success" | "error"; title: string; message: string; targetVoucher?: Voucher;
   }>({ visible: false, type: "success", title: "", message: "" });
+=======
+  const persist = useCallback(async (data: Voucher[]) => {
+    setVouchers(data);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
+
+    // ✅ Sync sang @promo_codes để Guest có thể nhập mã
+    const promoCodes = data.map(v => ({
+      id: v.id,
+      code: v.code,
+      type: v.type,
+      value: Number(v.discount),
+      minOrder: Number(v.minOrder) || 0,
+      maxDiscount: Number(v.maxDiscount) || 0,
+      description: v.description,
+      expiry: v.expiry,
+      color: v.color,
+      active: v.status === "active",
+      usedCount: v.used,
+      limit: v.limit,
+      source: "admin",
+    }));
+    await AsyncStorage.setItem("@promo_codes", JSON.stringify(promoCodes)).catch(() => {});
+  }, []);
+>>>>>>> Stashed changes
 
   useFocusEffect(useCallback(() => { loadVouchers(); }, []));
 
@@ -142,6 +167,7 @@ export default function AdminVoucherManagementScreen() {
     setEditingVoucher(prev => ({ ...prev, [field]: num }));
   };
 
+<<<<<<< Updated upstream
   // LOGIC MỞ LỊCH ĐÃ ĐƯỢC LÀM LẠI
   const handleOpenPicker = (field: "startDate" | "endDate") => {
     setPickerField(field);
@@ -149,6 +175,30 @@ export default function AdminVoucherManagementScreen() {
     setPickerDate(new Date()); 
     setShowPicker(true);
   };
+=======
+  const handleDelete = (v: Voucher) =>
+    Alert.alert(
+      "Xóa voucher",
+      `Bạn có chắc muốn xóa voucher "${v.code}"?\nHành động này không thể hoàn tác.`,
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Xóa",
+          style: "destructive",
+          onPress: async () => {
+            const updated = vouchers.filter((x) => x.id !== v.id);
+            await persist(updated);
+            // ✅ Xóa luôn khỏi kho voucher Guest nếu chưa dùng
+            const gRaw = await AsyncStorage.getItem("@guest_vouchers").catch(() => null);
+            if (gRaw) {
+              const gList = JSON.parse(gRaw).filter((gv: any) => gv.code !== v.code);
+              await AsyncStorage.setItem("@guest_vouchers", JSON.stringify(gList)).catch(() => {});
+            }
+          },
+        },
+      ],
+    );
+>>>>>>> Stashed changes
 
   const saveDateToString = (d: Date, field: string) => {
     const day = String(d.getDate()).padStart(2, '0');
@@ -261,12 +311,39 @@ export default function AdminVoucherManagementScreen() {
         </View>
       </View>
 
+<<<<<<< Updated upstream
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
           <Ionicons name="search" size={20} color="#94a8d8" />
           <TextInput style={styles.searchInput} placeholder="Tìm mã hoặc tên khuyến mãi..." placeholderTextColor="#94a8d8" value={searchQuery} onChangeText={setSearchQuery} />
         </View>
       </View>
+=======
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={s.filterRow}
+        style={{ flexGrow: 0 }}
+      >
+        {["Tất cả", ...STATUS_OPTIONS].map((st) => {
+          const label =
+            st === "Tất cả" ? "Tất cả" : STATUS_MAP[st as VoucherStatus].label;
+          return (
+            <TouchableOpacity
+              key={st}
+              style={[s.filterChip, selStatus === st && s.filterActive]}
+              onPress={() => setSelStatus(st)}
+            >
+              <Text
+                style={[s.filterTxt, selStatus === st && s.filterTxtActive]}
+              >
+                {label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+>>>>>>> Stashed changes
 
       <View style={styles.filtersWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
@@ -588,6 +665,7 @@ const styles = StyleSheet.create({
   addBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#4f7cff", alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
   iconTopBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
+<<<<<<< Updated upstream
   
   searchRow: { paddingHorizontal: 16, paddingBottom: 10 },
   searchBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: "#e4ebff" },
@@ -597,6 +675,46 @@ const styles = StyleSheet.create({
   filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" },
   filterChipActive: { backgroundColor: "#1f2a58", borderColor: "#1f2a58" },
   filterTxt: { color: "#7a8cc2", fontWeight: "600", fontSize: 13 },
+=======
+  statsRow: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e4ebff",
+  },
+  statItem: { flex: 1, alignItems: "center" },
+  statBorder: { borderRightWidth: 1, borderRightColor: "#e4ebff" },
+  statNum: { fontSize: 20, fontWeight: "800" },
+  statLbl: { fontSize: 11, color: "#7a8cc2", marginTop: 2 },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    margin: 14,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#dfe7ff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  searchInput: { flex: 1, color: "#1f2a58", fontSize: 14 },
+  filterRow: { gap: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
+  filterChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#dfe7ff",
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterActive: { backgroundColor: "#4f7cff", borderColor: "#4f7cff", height: 34 },
+  filterTxt: { color: "#6c7fb7", fontSize: 12, fontWeight: "600" },
+>>>>>>> Stashed changes
   filterTxtActive: { color: "#fff" },
 
   listContent: { padding: 16, paddingBottom: 100 },

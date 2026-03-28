@@ -1,10 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { View } from 'react-native';
+import { GuestChatBubble } from '@/components/GuestChatBubble';
 
 export default function TabLayout() {
   return (
-    <Tabs
+    <View style={{ flex: 1 }}>
+      <GuestChatBubble />
+      <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: '#4f7cff',
@@ -53,5 +57,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </View>
   );
 }

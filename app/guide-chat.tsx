@@ -134,14 +134,24 @@ export default function GuideChat() {
           ref={flatRef}
           data={messages}
           keyExtractor={m => m.id}
-          contentContainerStyle={s.messageList}
+          contentContainerStyle={s.msgListContent}
           onLayout={() => flatRef.current?.scrollToEnd()}
-          renderItem={({ item }) => (
-            <View style={[s.bubble, item.from === "guide" ? s.bubbleGuide : s.bubbleGuest]}>
-              <Text style={[s.bubbleTxt, item.from === "guide" ? s.bubbleTxtGuide : s.bubbleTxtGuest]}>{item.text}</Text>
-              <Text style={[s.bubbleTime, item.from === "guide" && { color: "rgba(255,255,255,0.7)" }]}>{item.time}</Text>
+          renderItem={({ item }) => {
+          const isGuide = item.from === "guide";
+          return (
+            <View style={[s.msgRow, isGuide ? s.msgRowGuide : s.msgRowGuest]}>
+              <View style={[s.miniAvatar, { backgroundColor: isGuide ? ACCENT : "#c0cbe8" }]}>
+                <Text style={s.miniAvatarTxt}>{isGuide ? "H" : activeSession?.guestName.charAt(0)}</Text>
+              </View>
+              <View style={isGuide ? s.bubbleColGuide : s.bubbleColGuest}>
+                <View style={[s.bubble, isGuide ? s.bubbleGuide : s.bubbleGuest]}>
+                  <Text style={[s.bubbleTxt, isGuide ? s.bubbleTxtGuide : s.bubbleTxtGuest]}>{item.text}</Text>
+                </View>
+                <Text style={[s.timeTxt, isGuide ? s.timeTxtGuide : s.timeTxtGuest]}>{item.time}</Text>
+              </View>
             </View>
-          )}
+          );
+        }}
         />
 
         {/* Quick replies */}
@@ -223,51 +233,91 @@ export default function GuideChat() {
   );
 }
 
+// ── Color tokens (đồng bộ với staff-livechat) ────────────────
+const TXT   = "#1f2a58";
+const TXT3  = "#94a3b8";
+const WHITE = "#fff";
+const BORDER= "#e4ebff";
+const MSGBG = "#f3f7ff";
+const ACCENT= "#10b981";   // xanh lá — màu accent của guide
+
 const s = StyleSheet.create({
-  screen:           { flex: 1, backgroundColor: "#f3f7ff" },
-  topBar:           { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4ebff", gap: 10 },
-  iconBtn:          { width: 36, height: 36, borderRadius: 10, backgroundColor: "#edf2ff", alignItems: "center", justifyContent: "center" },
-  headerTitle:      { flex: 1, fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  unreadBadge:      { backgroundColor: "#fee2e2", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  unreadBadgeTxt:   { color: "#dc2626", fontWeight: "800", fontSize: 12 },
-  content:          { padding: 14 },
-  emptyCard:        { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 32, alignItems: "center", gap: 12 },
-  emptyTxt:         { color: "#7a8cc2" },
-  sessionCard:      { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 12, marginBottom: 8 },
-  sessionCardUnread:{ borderColor: "#dbeafe", backgroundColor: "#f0f7ff" },
-  sessionAvatar:    { width: 48, height: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  sessionAvatarTxt: { color: "#fff", fontWeight: "800", fontSize: 20 },
-  sessionTopRow:    { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
-  sessionName:      { color: "#1f2a58", fontWeight: "800", fontSize: 14 },
-  sessionTime:      { color: "#94a3b8", fontSize: 11 },
-  sessionTour:      { color: "#7a8cc2", fontSize: 11, marginBottom: 3 },
-  sessionLast:      { color: "#94a3b8", fontSize: 12 },
-  unreadDot:        { width: 22, height: 22, borderRadius: 11, backgroundColor: "#10b981", alignItems: "center", justifyContent: "center" },
-  unreadDotTxt:     { color: "#fff", fontSize: 10, fontWeight: "800" },
-  // Chat screen
-  chatTopBar:       { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingBottom: 10, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4ebff", gap: 10 },
-  chatAvatar:       { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  chatAvatarTxt:    { color: "#fff", fontWeight: "800", fontSize: 15 },
-  chatName:         { color: "#1f2a58", fontWeight: "800", fontSize: 15 },
-  chatTour:         { color: "#7a8cc2", fontSize: 11 },
-  callBtn:          { width: 36, height: 36, borderRadius: 12, backgroundColor: "#f0fdf4", alignItems: "center", justifyContent: "center" },
-  bookingBanner:    { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#eaf0ff", paddingHorizontal: 14, paddingVertical: 8 },
-  bookingBannerTxt: { color: "#2856d6", fontSize: 12, fontWeight: "600" },
-  messageList:      { padding: 14, gap: 8 },
-  bubble:           { maxWidth: "80%", borderRadius: 16, padding: 10 },
-  bubbleGuide:      { backgroundColor: "#10b981", alignSelf: "flex-end", borderBottomRightRadius: 4 },
-  bubbleGuest:      { backgroundColor: "#fff", alignSelf: "flex-start", borderBottomLeftRadius: 4, borderWidth: 1, borderColor: "#e4ebff" },
-  bubbleTxt:        { fontSize: 14, lineHeight: 20 },
-  bubbleTxtGuide:   { color: "#fff" },
-  bubbleTxtGuest:   { color: "#1f2a58" },
-  bubbleTime:       { color: "#7a8cc2", fontSize: 10, marginTop: 4, alignSelf: "flex-end" },
-  quickBar:         { maxHeight: 44, backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#e4ebff" },
-  quickBarContent:  { gap: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  quickChip:        { borderRadius: 999, borderWidth: 1, borderColor: "#dfe7ff", backgroundColor: "#f3f7ff", paddingHorizontal: 12, paddingVertical: 6, maxWidth: 220 },
-  quickChipTxt:     { color: "#2856d6", fontSize: 12 },
-  inputBar:         { flexDirection: "row", alignItems: "flex-end", gap: 8, padding: 10, backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#e4ebff" },
-  quickToggle:      { width: 38, height: 38, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  msgInput:         { flex: 1, backgroundColor: "#f3f7ff", borderRadius: 14, borderWidth: 1, borderColor: "#e4ebff", paddingHorizontal: 14, paddingVertical: 10, color: "#1f2a58", maxHeight: 100, fontSize: 14 },
-  sendBtn:          { width: 40, height: 40, borderRadius: 12, backgroundColor: "#10b981", alignItems: "center", justifyContent: "center" },
-  sendBtnOff:       { backgroundColor: "#c0cbe8" },
+  screen: { flex: 1, backgroundColor: MSGBG },
+
+  // ── List screen ──────────────────────────────────────────
+  topBar:        { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 12, backgroundColor: WHITE, borderBottomWidth: 1, borderBottomColor: BORDER, gap: 10 },
+  iconBtn:       { width: 34, height: 34, borderRadius: 9, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center" },
+  headerTitle:   { flex: 1, fontSize: 18, fontWeight: "800", color: TXT },
+  unreadBadge:   { backgroundColor: "#fee2e2", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  unreadBadgeTxt:{ color: "#dc2626", fontWeight: "800", fontSize: 12 },
+
+  content:    { padding: 12 },
+  emptyCard:  { backgroundColor: WHITE, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 32, alignItems: "center", gap: 12, marginTop: 40 },
+  emptyTxt:   { color: TXT3, fontSize: 13, fontWeight: "600" },
+
+  // Session card — cấu trúc giống staff
+  sessionCard:       { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: WHITE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 12, marginBottom: 8 },
+  sessionCardUnread: { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4" },
+  sessionAvatar:     { width: 46, height: 46, borderRadius: 14, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  sessionAvatarTxt:  { color: WHITE, fontWeight: "800", fontSize: 18 },
+  cardBody:          { flex: 1, minWidth: 0, gap: 2 },
+  sessionTopRow:     { flexDirection: "row", alignItems: "center" },
+  sessionName:       { fontSize: 14, fontWeight: "700", color: TXT, flexShrink: 1 },
+  sessionTime:       { fontSize: 11, color: TXT3, marginLeft: "auto" as const, paddingLeft: 4 },
+  sessionTour:       { fontSize: 11, fontWeight: "600", color: ACCENT },
+  sessionLast:       { fontSize: 12, color: TXT3 },
+  unreadDot:         { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: ACCENT, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  unreadDotTxt:      { color: WHITE, fontSize: 10, fontWeight: "800" },
+
+  // ── Chat (detail) screen ─────────────────────────────────
+  chatTopBar:    { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingBottom: 10, backgroundColor: WHITE, borderBottomWidth: 1, borderBottomColor: BORDER, gap: 8 },
+  chatAvatar:    { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  chatAvatarTxt: { color: WHITE, fontWeight: "800", fontSize: 14 },
+  topInfo:       { flex: 1, minWidth: 0 },
+  chatName:      { color: TXT, fontWeight: "800", fontSize: 14 },
+  chatTour:      { color: TXT3, fontSize: 11 },
+  callBtn:       { width: 34, height: 34, borderRadius: 10, backgroundColor: "#f0fdf4", alignItems: "center", justifyContent: "center" },
+
+  bookingBanner:    { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#eff6ff", paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#dbeafe" },
+  bookingBannerTxt: { color: "#1d4ed8", fontSize: 11, fontWeight: "600" },
+
+  msgList:        { flex: 1, backgroundColor: MSGBG },
+  msgListContent: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 8 },
+
+  // Bubble layout — giống staff (row + column + bounded bubble)
+  msgRow:       { flexDirection: "row", gap: 7 },
+  msgRowGuest:  { alignSelf: "flex-start", maxWidth: "88%" },
+  msgRowGuide:  { alignSelf: "flex-end",   maxWidth: "88%", flexDirection: "row-reverse" },
+
+  miniAvatar:    { width: 26, height: 26, borderRadius: 7, alignItems: "center", justifyContent: "center", flexShrink: 0, alignSelf: "flex-end" },
+  miniAvatarTxt: { fontSize: 10, fontWeight: "800", color: WHITE },
+
+  bubbleColGuest: { flexShrink: 1, gap: 2, alignItems: "flex-start" },
+  bubbleColGuide: { flexShrink: 1, gap: 2, alignItems: "flex-end" },
+
+  bubble:      { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
+  bubbleGuide: { backgroundColor: ACCENT, borderBottomRightRadius: 4 },
+  bubbleGuest: { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER, borderBottomLeftRadius: 4 },
+
+  bubbleTxt:      { fontSize: 13, lineHeight: 19, flexShrink: 1, flexWrap: "wrap" as const },
+  bubbleTxtGuide: { color: WHITE },
+  bubbleTxtGuest: { color: TXT },
+
+  timeTxt:      { fontSize: 10, color: TXT3 },
+  timeTxtGuest: { alignSelf: "flex-start" as const },
+  timeTxtGuide: { alignSelf: "flex-end" as const },
+
+  // Quick replies
+  quickBar:        { maxHeight: 46, backgroundColor: WHITE, borderTopWidth: 1, borderTopColor: BORDER },
+  quickBarContent: { paddingHorizontal: 12, paddingVertical: 8, gap: 8, alignItems: "center" as const },
+  quickChip:       { backgroundColor: "#f0fdf4", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: "#bbf7d0" },
+  quickChipTxt:    { color: ACCENT, fontSize: 12, fontWeight: "600" },
+
+  // Input bar
+  inputBar:    { backgroundColor: WHITE, borderTopWidth: 1, borderTopColor: BORDER, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10 },
+  inputRow:    { flexDirection: "row", gap: 8, alignItems: "center" },
+  quickToggle: { width: 34, height: 34, borderRadius: 9, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center" },
+  msgInput:    { flex: 1, backgroundColor: "#f1f5f9", borderRadius: 18, borderWidth: 1, borderColor: BORDER, paddingHorizontal: 14, paddingTop: 9, paddingBottom: 9, color: TXT, fontSize: 13, maxHeight: 88, lineHeight: 19 },
+  sendBtn:     { width: 38, height: 38, borderRadius: 19, backgroundColor: ACCENT, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  sendBtnOff:  { backgroundColor: "#e2e8f0" },
 });

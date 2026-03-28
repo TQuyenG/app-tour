@@ -27,6 +27,45 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+<<<<<<< Updated upstream
+=======
+import { Image } from 'react-native';
+
+const TOUR_IMG_MAP: Record<string, string> = {
+  t001: 'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=600&q=80',
+  t002: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80',
+  t003: 'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=600&q=80',
+  t004: 'https://images.unsplash.com/photo-1506461883276-594a12b11cf3?w=600&q=80',
+  t005: 'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=600&q=80',
+  t006: 'https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=600&q=80',
+  t007: 'https://images.unsplash.com/photo-1596178060671-7a80dc8059ea?w=600&q=80',
+  t008: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80',
+};
+function getTourImg(t: AppTour): string {
+  if (TOUR_IMG_MAP[t.id]) return TOUR_IMG_MAP[t.id];
+  const n = (t.name || '').toLowerCase();
+  if (n.includes('đà lạt'))    return TOUR_IMG_MAP.t001;
+  if (n.includes('phú quốc')) return TOUR_IMG_MAP.t002;
+  if (n.includes('nha trang'))return TOUR_IMG_MAP.t003;
+  if (n.includes('sapa'))     return TOUR_IMG_MAP.t004;
+  if (n.includes('hạ long'))  return TOUR_IMG_MAP.t005;
+  if (n.includes('hội an'))   return TOUR_IMG_MAP.t006;
+  if (n.includes('đà nẵng'))  return TOUR_IMG_MAP.t007;
+  if (n.includes('mũi né'))   return TOUR_IMG_MAP.t008;
+  return 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=600&q=80';
+}
+
+const GUIDE_AVATARS: Record<string, string> = {
+  g001: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80',
+  g002: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80',
+  g003: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80',
+  g004: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80',
+};
+function getGuideAvatar(g: AppGuide): string {
+  return GUIDE_AVATARS[g.id] ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(g.name)}&background=4f7cff&color=fff&size=200`;
+}
+>>>>>>> Stashed changes
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -130,8 +169,9 @@ function GuidePickerModal({visible,guides,selected,onClose,onSelect}:
               return(
                 <TouchableOpacity key={g.id} style={[s.guidePickCard,busy&&{opacity:0.4},sel&&{borderColor:'#4f7cff',backgroundColor:'#edf2ff'}]}
                   onPress={()=>!busy&&onSelect(g)} disabled={busy} activeOpacity={0.8}>
-                  <View style={s.guideAvatar}><Ionicons name="person" size={18} color="#fff"/></View>
-                  <View style={{flex:1}}>
+                  <View style={s.guideAvatar}>
+                    <Image source={{uri:getGuideAvatar(g)}} style={{width:'100%',height:'100%',borderRadius:14}} resizeMode="cover"/>
+                  </View>                  <View style={{flex:1}}>
                     <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
                       <Text style={s.guidePickName}>{g.name}</Text>
                       {busy&&<View style={s.busyBadge}><Text style={s.busyTxt}>Đang bận</Text></View>}
@@ -177,7 +217,11 @@ function TourPickerModal({visible,tours,selected,onClose,onSelect}:
               return(
                 <TouchableOpacity key={t.id} style={[s.listCard,sel&&s.listCardSel]}
                   onPress={()=>onSelect(t)} activeOpacity={0.8}>
-                  <View style={[s.listColorDot,{backgroundColor:t.color||'#99bbff'}]}/>
+                  {/* Ảnh thumbnail */}
+                  <View style={{width:60,height:60,borderRadius:12,overflow:'hidden',flexShrink:0}}>
+                    <Image source={{uri:getTourImg(t)}} style={{width:'100%',height:'100%'}} resizeMode="cover"/>
+                    {sel&&<View style={{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(79,124,255,0.45)',alignItems:'center',justifyContent:'center'}}><Ionicons name="checkmark-circle" size={22} color="#fff"/></View>}
+                  </View>
                   <View style={{flex:1}}>
                     <Text style={s.listName}>{t.name}</Text>
                     <Text style={s.listMeta}>{t.departure} · {t.duration}</Text>
@@ -189,7 +233,6 @@ function TourPickerModal({visible,tours,selected,onClose,onSelect}:
                     </View>
                   </View>
                   <Text style={s.listPrice}>{t.price}</Text>
-                  {sel&&<Ionicons name="checkmark-circle" size={18} color="#4f7cff" style={{marginLeft:6}}/>}
                 </TouchableOpacity>
               );
             })}
@@ -477,11 +520,18 @@ export default function GuestBookingFlow(){
   // ── Step renders ──────────────────────────────────────────
   const renderTourCard=(t:AppTour)=>(
     <View style={s.selectedCard} key={t.id}>
-      <View style={[s.cardBar,{backgroundColor:t.color||'#99bbff'}]}/>
-      <View style={s.selectedBody}>
-        <Text style={s.selectedName}>{t.name}</Text>
+      {/* Ảnh tour banner thay cho thanh màu */}
+      <View style={{height:110,borderRadius:14,overflow:'hidden',marginBottom:0,position:'relative'}}>
+        <Image source={{uri:getTourImg(t)}} style={{width:'100%',height:'100%'}} resizeMode="cover"/>
+        <View style={{position:'absolute',bottom:0,left:0,right:0,height:50,backgroundColor:'rgba(15,25,60,0.38)'}}/>
+        <View style={{position:'absolute',bottom:8,left:12,right:12,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
+          <Text style={{color:'#fff',fontWeight:'800',fontSize:13,flex:1}} numberOfLines={1}>{t.name}</Text>
+          <Text style={{color:'#fff',fontWeight:'700',fontSize:13}}>{formatPrice(t)}</Text>
+        </View>
+      </View>
+      <View style={[s.selectedBody,{paddingTop:8}]}>
         <View style={s.metaRow}><Ionicons name="location-outline" size={12} color="#8ea0d6"/><Text style={s.metaTxt}>{t.departure}</Text><Text style={s.dot}>·</Text><Ionicons name="time-outline" size={12} color="#8ea0d6"/><Text style={s.metaTxt}>{t.duration}</Text></View>
-        <View style={s.metaRow}><Ionicons name="star" size={11} color="#f59e0b"/><Text style={s.metaTxt}>{t.rating}</Text><Text style={s.dot}>·</Text><Text style={s.priceInline}>{formatPrice(t)}</Text></View>
+        <View style={s.metaRow}><Ionicons name="star" size={11} color="#f59e0b"/><Text style={s.metaTxt}>{t.rating}</Text><Text style={s.dot}>·</Text><Text style={{color:'#16a34a',fontSize:11,fontWeight:'700'}}>{t.seatsLeft} chỗ còn</Text></View>
       </View>
     </View>
   );
@@ -497,11 +547,23 @@ export default function GuestBookingFlow(){
           <Ionicons name="swap-horizontal-outline" size={16} color="#4f7cff"/><Text style={s.changeTxt}>Đổi tour khác</Text>
         </TouchableOpacity>
       </> : (
-        <ScrollView style={{maxHeight:300}} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+        <ScrollView style={{maxHeight:360}} nestedScrollEnabled showsVerticalScrollIndicator={false}>
           {tours.slice(0,6).map(t=>(
-            <TouchableOpacity key={t.id} style={s.listCard} onPress={()=>setSelectedTour(t)}>
-              <View style={[s.listColorDot,{backgroundColor:t.color||'#99bbff'}]}/>
-              <View style={{flex:1}}><Text style={s.listName}>{t.name}</Text><Text style={s.listMeta}>{t.departure} · {t.duration}</Text></View>
+            <TouchableOpacity key={t.id} style={s.listCard} onPress={()=>setSelectedTour(t)} activeOpacity={0.85}>
+              {/* Ảnh tour thay cho dot màu */}
+              <View style={{width:56,height:56,borderRadius:12,overflow:'hidden',flexShrink:0}}>
+                <Image source={{uri:getTourImg(t)}} style={{width:'100%',height:'100%'}} resizeMode="cover"/>
+              </View>
+              <View style={{flex:1}}>
+                <Text style={s.listName}>{t.name}</Text>
+                <Text style={s.listMeta}>{t.departure} · {t.duration}</Text>
+                <View style={{flexDirection:'row',alignItems:'center',gap:4,marginTop:2}}>
+                  <Ionicons name="star" size={11} color="#f59e0b"/>
+                  <Text style={{color:'#7a8cc2',fontSize:11}}>{t.rating}</Text>
+                  <Text style={{color:'#c0cbe8'}}>·</Text>
+                  <Text style={{color:'#16a34a',fontSize:11,fontWeight:'700'}}>{t.seatsLeft} chỗ</Text>
+                </View>
+              </View>
               <Text style={s.listPrice}>{formatPrice(t)}</Text>
             </TouchableOpacity>
           ))}

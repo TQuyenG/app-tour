@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+<<<<<<< Updated upstream
 interface AdminProfile {
   name: string;
   email: string;
@@ -30,6 +31,26 @@ interface AdminProfile {
 }
 
 export default function AdminProfileScreen() {
+=======
+const MENU_ITEMS = [
+  { icon: "map-outline",               label: "Quản lý Tour",        route: "/admin-tour-management",   color: "#4f7cff" },
+  { icon: "people-outline",            label: "Quản lý HDV",         route: "/admin-guide-management",  color: "#22c55e" },
+  { icon: "person-add-outline",        label: "Duyệt đăng ký HDV",  route: "/admin-guide-requests",    color: "#d97706" },
+  { icon: "person-circle-outline",     label: "Quản lý Users",       route: "/admin-users",             color: "#06b6d4" },
+  { icon: "ticket-outline",            label: "Quản lý Voucher",     route: "/admin-voucher-management",color: "#f59e0b" },
+  { icon: "flash-outline",             label: "Flash Sale / Deal",   route: "/admin-flash-sale",        color: "#ef4444" },
+  { icon: "image-outline",             label: "Quản lý Banner",      route: "/admin-banner",            color: "#8b5cf6" },
+  { icon: "cash-outline",              label: "Cấu hình Commission", route: "/admin-commission",        color: "#16a34a" },
+  { icon: "warning-outline",           label: "Khiếu nại & Tranh chấp",route: "/admin-complaints",     color: "#dc2626" },
+  { icon: "return-down-back-outline",  label: "Quản lý Hoàn tiền",   route: "/admin-refund-management", color: "#0ea5e9" },
+  { icon: "chatbubble-ellipses-outline", label: "Giám sát Live Chat", route: "/admin-livechat-monitor", color: "#f59e0b" },
+  { icon: "bar-chart-outline",         label: "Báo cáo & Thống kê", route: "/admin-report",            color: "#a855f7" },
+  { icon: "settings-outline",          label: "Cài đặt hệ thống",   route: "/admin-settings",          color: "#64748b" },
+] as const;
+
+
+export default function AdminProfile() {
+>>>>>>> Stashed changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
   
