@@ -1,10 +1,10 @@
 /**
  * app/guest_loyalty.tsx
  * Điểm thưởng, cấp hạng tự động cập nhật từ Database
- * ĐÃ FIX: Lỗi kẹt nút khi bấm đổi Voucher (Thay Alert hệ thống bằng Custom Modal)
+ * ĐÃ FIX: Chỉ lấy dữ liệu của User đang đăng nhập thông qua storage-helper
  */
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/constants/storage-helper"; // Dùng màng lọc
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { Alert, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Modal } from "react-native";
@@ -25,13 +25,12 @@ export default function GuestLoyaltyScreen() {
   const [tier, setTier] = useState(TIER_CONFIG[0]);
   const [history, setHistory] = useState<any[]>([]);
   const [rewards, setRewards] = useState<any[]>([]);
-
-  // State quản lý Modal Đổi quà
   const [confirmModal, setConfirmModal] = useState<{voucher: any, cost: number} | null>(null);
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
       try {
+        // Màng lọc sẽ tự lấy profile của đúng người đang log in
         const pRaw = await AsyncStorage.getItem("@app_profile");
         if (pRaw) {
           const p = JSON.parse(pRaw);
@@ -39,10 +38,14 @@ export default function GuestLoyaltyScreen() {
           setPoints(currentPoints);
           const currentTier = TIER_CONFIG.slice().reverse().find(t => currentPoints >= t.minPoints) || TIER_CONFIG[0];
           setTier(currentTier);
+        } else {
+          // Nếu user mới tinh chưa có profile, reset về 0
+          setPoints(0);
+          setTier(TIER_CONFIG[0]);
         }
 
         const hRaw = await AsyncStorage.getItem("@guest_loyalty_history");
-        if (hRaw) setHistory(JSON.parse(hRaw));
+        setHistory(hRaw ? JSON.parse(hRaw) : []);
 
         const vRaw = await AsyncStorage.getItem("@admin_vouchers_advanced");
         if (vRaw) {
@@ -55,7 +58,6 @@ export default function GuestLoyaltyScreen() {
     loadData();
   }, []));
 
-  // Bước 1: Kiểm tra trước khi mở Modal
   const handleRedeemClick = async (voucher: any) => {
     const cost = Number(voucher.pointsCost) || 500;
     const maxRedeem = Number(voucher.userLimit) || 1;
@@ -65,28 +67,23 @@ export default function GuestLoyaltyScreen() {
     const currentRedeemCount = myVouchers.filter((v:any) => v.code === voucher.code).length;
 
     if (currentRedeemCount >= maxRedeem) {
-      Alert.alert("Giới hạn", `Bạn đã đổi mã này ${currentRedeemCount}/${maxRedeem} lần. Mỗi thành viên có số lượt giới hạn.`);
+      Alert.alert("Giới hạn", `Bạn đã đổi mã này ${currentRedeemCount}/${maxRedeem} lần.`);
       return;
     }
 
     if (points < cost) {
-      Alert.alert("Không đủ điểm", `Bạn cần thêm ${cost - points} điểm nữa để đổi phần quà này.`);
+      Alert.alert("Không đủ điểm", `Bạn cần thêm ${cost - points} điểm nữa.`);
       return;
     }
-
-    // Mở popup xác nhận
     setConfirmModal({ voucher, cost });
   };
 
-  // Bước 2: Thực thi đổi khi bấm Nút Đồng ý trong Modal
   const executeRedeem = async () => {
     if (!confirmModal) return;
     const { voucher, cost } = confirmModal;
-
     try {
       const newPoints = points - cost;
       setPoints(newPoints);
-      
       const pRaw = await AsyncStorage.getItem("@app_profile");
       const p = pRaw ? JSON.parse(pRaw) : {};
       p.loyaltyPoints = newPoints;
@@ -100,19 +97,12 @@ export default function GuestLoyaltyScreen() {
 
       const myVRaw = await AsyncStorage.getItem("@guest_vouchers");
       const myVouchers = myVRaw ? JSON.parse(myVRaw) : [];
-      myVouchers.unshift({
-        ...voucher, 
-        id: `gv_${Date.now()}`, 
-        used: false, 
-        source: 'loyalty'
-      });
+      myVouchers.unshift({ ...voucher, id: `gv_${Date.now()}`, used: false, source: 'loyalty' });
       await AsyncStorage.setItem("@guest_vouchers", JSON.stringify(myVouchers));
 
       setConfirmModal(null);
-      Alert.alert("Thành công!", "Voucher đã được lưu vào kho của bạn. Hãy vào mục Kho Voucher để kiểm tra nhé.");
-    } catch (e) {
-      console.error(e);
-    }
+      Alert.alert("Thành công!", "Voucher đã được lưu vào kho của bạn.");
+    } catch (e) {}
   };
 
   return (
@@ -136,9 +126,9 @@ export default function GuestLoyaltyScreen() {
           {tier.name !== "Kim Cương" && (
              <View style={s.progressWrap}>
                <View style={s.progressBg}>
-                 <View style={[s.progressFill, { backgroundColor: tier.color, width: `${(points / tier.maxPoints) * 100}%` }]} />
+                 <View style={[s.progressFill, { backgroundColor: tier.color, width: `${Math.min((points / tier.maxPoints) * 100, 100)}%` }]} />
                </View>
-               <Text style={s.progressTxt}>Cần {tier.maxPoints - points + 1} điểm nữa để thăng hạng</Text>
+               <Text style={s.progressTxt}>Cần {Math.max(tier.maxPoints - points + 1, 0)} điểm nữa để thăng hạng</Text>
              </View>
           )}
         </View>
@@ -155,7 +145,7 @@ export default function GuestLoyaltyScreen() {
 
         <Text style={s.sectionTitle}>Cửa hàng Đổi Điểm</Text>
         {rewards.length === 0 ? (
-          <Text style={{color: '#94a3b8', fontStyle: 'italic', marginBottom: 20}}>Hiện tại Admin chưa mở quà đổi điểm nào.</Text>
+          <Text style={{color: '#94a3b8', fontStyle: 'italic', marginBottom: 20}}>Hiện tại chưa có quà đổi điểm nào.</Text>
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 20 }}>
             {rewards.map((v, i) => (
@@ -169,7 +159,6 @@ export default function GuestLoyaltyScreen() {
                  <TouchableOpacity 
                    style={[s.redeemBtn, points < v.pointsCost && { backgroundColor: "#f1f5f9" }]} 
                    onPress={() => handleRedeemClick(v)}
-                   activeOpacity={0.8}
                  >
                    <Text style={[s.redeemBtnTxt, points < v.pointsCost && { color: "#94a3b8" }]}>Đổi ngay</Text>
                  </TouchableOpacity>
@@ -179,7 +168,7 @@ export default function GuestLoyaltyScreen() {
         )}
 
         <Text style={s.sectionTitle}>Lịch sử điểm</Text>
-        {history.length === 0 && <Text style={{color: '#94a3b8'}}>Bạn chưa có giao dịch điểm nào.</Text>}
+        {history.length === 0 && <Text style={{color: '#94a3b8'}}>Bạn chưa có giao dịch nào.</Text>}
         {history.map(item => (
            <View key={item.id} style={s.historyCard}>
               <View style={[s.historyIcon, { backgroundColor: item.type === "earn" ? "#eaf0ff" : "#fee2e2" }]}>
@@ -196,15 +185,12 @@ export default function GuestLoyaltyScreen() {
         ))}
       </ScrollView>
 
-      {/* POPUP XÁC NHẬN ĐỔI QUÀ BẰNG COMPONENT THAY VÌ ALERT HỆ THỐNG */}
       <Modal visible={!!confirmModal} transparent animationType="fade">
          <View style={s.modalOverlay}>
             <View style={s.modalBox}>
                <Ionicons name="gift" size={50} color="#4f7cff" />
                <Text style={s.modalTitle}>Xác nhận đổi quà</Text>
-               <Text style={s.modalSub}>
-                 Bạn sẽ dùng <Text style={{fontWeight: 'bold', color: '#f59e0b'}}>{confirmModal?.cost} điểm</Text> để lấy mã: <Text style={{fontWeight: 'bold', color: '#1f2a58'}}>{confirmModal?.voucher?.title}</Text>?
-               </Text>
+               <Text style={s.modalSub}>Dùng {confirmModal?.cost} điểm để lấy voucher: {confirmModal?.voucher?.title}?</Text>
                <View style={s.modalBtnRow}>
                  <TouchableOpacity style={s.modalCancelBtn} onPress={() => setConfirmModal(null)}><Text style={s.modalCancelTxt}>Hủy</Text></TouchableOpacity>
                  <TouchableOpacity style={s.modalSubmitBtn} onPress={executeRedeem}><Text style={s.modalSubmitTxt}>Đồng ý Đổi</Text></TouchableOpacity>
@@ -212,7 +198,6 @@ export default function GuestLoyaltyScreen() {
             </View>
          </View>
       </Modal>
-
     </View>
   );
 }
@@ -237,7 +222,6 @@ const s = StyleSheet.create({
   perkCard: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: "#e4ebff" },
   perkRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   perkTxt: { fontSize: 14, color: "#334155", flex: 1 },
-  
   redeemCard: { backgroundColor: "#fff", width: 150, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff" },
   redeemTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   redeemValue: { fontSize: 20, fontWeight: "900", color: "#1f2a58" },
@@ -245,14 +229,11 @@ const s = StyleSheet.create({
   redeemPoints: { fontSize: 13, color: "#4f7cff", fontWeight: "800", marginBottom: 12 },
   redeemBtn: { backgroundColor: "#4f7cff", paddingVertical: 8, borderRadius: 10, alignItems: "center" },
   redeemBtnTxt: { color: "#fff", fontWeight: "800", fontSize: 12 },
-  
   historyCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", padding: 14, borderRadius: 14, marginBottom: 10, borderWidth: 1, borderColor: "#e4ebff" },
   historyIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginRight: 12 },
   historyDesc: { fontSize: 14, fontWeight: "700", color: "#1f2a58" },
   historyDate: { fontSize: 12, color: "#94a3b8", marginTop: 4 },
   historyPoints: { fontSize: 16, fontWeight: "900" },
-
-  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.6)", alignItems: "center", justifyContent: "center", padding: 24 },
   modalBox: { backgroundColor: "#fff", width: "100%", borderRadius: 24, padding: 24, alignItems: "center", elevation: 10 },
   modalTitle: { fontSize: 18, fontWeight: "900", color: "#1f2a58", marginTop: 12, marginBottom: 8 },

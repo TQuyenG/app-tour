@@ -1,9 +1,9 @@
 /**
  * app/guest_vouchers.tsx
- * Kho voucher của khách: Responsive, Fix tiền mặt, Nút Copy mã, Tab Lịch sử
+ * Kho voucher của khách: ĐÃ FIX LỖI DỮ LIỆU CŨ & BỔ SUNG LỊCH SỬ NGUỒN GỐC
  */
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/constants/storage-helper"; // Sử dụng màng lọc để tách dữ liệu cá nhân
 import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState, useMemo } from "react";
@@ -14,7 +14,7 @@ interface Voucher {
   id: string; code: string; type: "fixed" | "percent";
   value: number; desc?: string; title?: string;
   used: boolean; source: "system" | "cskh" | "promo" | "loyalty";
-  color: string;
+  color: string; usedAt?: string;
 }
 
 export default function GuestVouchersScreen() {
@@ -29,30 +29,40 @@ export default function GuestVouchersScreen() {
   const [activeTab, setActiveTab] = useState<"active" | "history">("active");
 
   const [customAlert, setCustomAlert] = useState<{visible: boolean, title: string, message: string, type: "success" | "error" | "info"}>({ visible: false, title: "", message: "", type: "info" });
+  
   const showAlert = (title: string, message: string, type: "success" | "error" | "info" = "info") => {
     setCustomAlert({ visible: true, title, message, type });
   };
 
   const loadVouchers = async () => {
+    // 1. Lấy thông tin User hiện tại từ Session để lọc dữ liệu quà tặng riêng
     const userRaw = await AsyncStorage.getItem("@app_current_user");
-    const guestId = userRaw ? JSON.parse(userRaw).accountId : "guest-1";
+    if (!userRaw) return;
+    const currentUser = JSON.parse(userRaw);
+    const guestId = currentUser.accountId;
+
     let allVouchers: Voucher[] = [];
 
-    // 1. Voucher khách tự thu thập
+    // 2. Nguồn 1: Voucher khách tự thu thập hoặc đổi điểm (Màng lọc tự tách theo User ID)
     const guestRaw = await AsyncStorage.getItem("@guest_vouchers");
     if (guestRaw) {
       const guestList = JSON.parse(guestRaw);
       guestList.forEach((v: any) => {
-        const val = Number(v.value || v.discountValue || 0);
-        allVouchers.push({ ...v, value: val, used: !!v.used });
+        allVouchers.push({ 
+            ...v, 
+            value: Number(v.value || v.discountValue || 0), 
+            used: !!v.used,
+            source: v.source || 'promo' 
+        });
       });
     }
 
-    // 2. Voucher Hệ thống tặng tất cả
+    // 3. Nguồn 2: Voucher Hệ thống tặng tất cả (Dữ liệu dùng chung)
     const adminRaw = await AsyncStorage.getItem("@admin_vouchers_advanced");
     if (adminRaw) {
       const adminList = JSON.parse(adminRaw);
       adminList.filter((v: any) => v.isGiftAll && v.status === "active").forEach((v: any) => {
+        // Tránh trùng mã đã lưu
         if (!allVouchers.find(ex => ex.code === v.code)) {
           allVouchers.push({
             id: v.id, code: v.code, type: v.type, value: Number(v.discountValue || v.value || 0),
@@ -62,7 +72,7 @@ export default function GuestVouchersScreen() {
       });
     }
 
-    // 3. Voucher CSKH/Direct tặng riêng
+    // 4. Nguồn 3: Voucher CSKH tặng riêng (Lọc theo Account ID thật để không bị lẫn user cũ)
     const directRaw = await AsyncStorage.getItem("@direct_vouchers");
     if (directRaw) {
       const directList = JSON.parse(directRaw);
@@ -80,13 +90,20 @@ export default function GuestVouchersScreen() {
 
   useFocusEffect(useCallback(() => { loadVouchers(); }, []));
 
-  // Format tiền: 50000 -> 50K, 1500000 -> 1.5Tr
   const formatValue = (val: number, type: string) => {
     if (type === "percent") return `${val}%`;
-    if (!val || val === 0) return "---";
     if (val >= 1000000) return `${(val / 1000000).toFixed(1).replace('.0', '')}Tr`;
     if (val >= 1000) return `${(val / 1000).toFixed(0)}K`;
     return `${val}đ`;
+  };
+
+  const getSourceLabel = (src: string) => {
+    switch(src) {
+        case 'system': return 'HỆ THỐNG';
+        case 'loyalty': return 'ĐỔI ĐIỂM';
+        case 'cskh': return 'QUÀ TẶNG';
+        default: return 'KHUYẾN MÃI';
+    }
   };
 
   const handleApplyCode = async () => {
@@ -127,7 +144,7 @@ export default function GuestVouchersScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      {/* Alert */}
+      {/* Custom Alert */}
       <Modal visible={customAlert.visible} animationType="fade" transparent>
         <View style={s.alertOverlay}>
           <View style={s.alertBox}>
@@ -168,26 +185,36 @@ export default function GuestVouchersScreen() {
           </View>
         ) : (
           displayedVouchers.map(v => (
-            <View key={v.id} style={[s.card, v.used && { opacity: 0.6 }]}>
-              <View style={[s.cardLeft, { backgroundColor: v.used ? "#cbd5e1" : v.color }]}>
+            <View key={v.id} style={[s.card, v.used && { opacity: 0.8 }]}>
+              <View style={[s.cardLeft, { backgroundColor: v.used ? "#94a8d8" : v.color }]}>
                 <Text style={s.valTxt} numberOfLines={1} adjustsFontSizeToFit>{formatValue(v.value, v.type)}</Text>
                 <Text style={s.typeTxt}>{v.type === "percent" ? "GIẢM GIÁ" : "TIỀN MẶT"}</Text>
               </View>
               <View style={s.cardRight}>
                 <View style={s.cardTop}>
                   <Text style={s.titleTxt} numberOfLines={1}>{v.title}</Text>
-                  <View style={[s.srcBadge, v.source === "cskh" && { backgroundColor: "#fef3c7" }]}>
-                    <Text style={[s.srcTxt, v.source === "cskh" && { color: "#d97706" }]}>{v.source === "cskh" ? "QUÀ TẶNG" : v.source === "promo" ? "KHUYẾN MÃI" : "HỆ THỐNG"}</Text>
+                  <View style={[s.srcBadge, { backgroundColor: v.used ? '#f1f5f9' : '#eaf0ff' }]}>
+                    <Text style={[s.srcTxt, { color: v.used ? '#94a8d8' : '#2856d6' }]}>{getSourceLabel(v.source)}</Text>
                   </View>
                 </View>
                 <Text style={s.voucherDesc} numberOfLines={2}>{v.desc}</Text>
+                
                 <View style={s.cardBottom}>
-                  <View style={s.codeRow}><Ionicons name="qr-code-outline" size={14} color="#7a8cc2" /><Text style={s.code}>{v.code}</Text></View>
+                  <View style={s.codeRow}>
+                    <Ionicons name="qr-code-outline" size={14} color="#7a8cc2" />
+                    <Text style={s.code}>{v.code}</Text>
+                  </View>
                   {!v.used ? (
                     <TouchableOpacity style={s.copyBtn} onPress={() => copyToClipboard(v.code)}>
-                      <Ionicons name="copy-outline" size={14} color="#2856d6" /><Text style={s.copyBtnTxt}>Copy</Text>
+                      <Ionicons name="copy-outline" size={14} color="#2856d6" />
+                      <Text style={s.copyBtnTxt}>Copy</Text>
                     </TouchableOpacity>
-                  ) : <Text style={s.usedLabel}>Đã dùng</Text>}
+                  ) : (
+                    <View style={s.usedBadgeRow}>
+                        <Ionicons name="checkmark-done-circle" size={14} color="#10b981" />
+                        <Text style={s.usedLabel}>Đã sử dụng</Text>
+                    </View>
+                  )}
                 </View>
               </View>
             </View>
@@ -219,21 +246,22 @@ const getStyles = (scale: number) => {
     emptyBox: { alignItems: "center", justifyContent: "center", marginTop: sz(60), gap: sz(12) },
     emptyTxt: { color: "#7a8cc2", fontSize: sz(14), fontWeight: "600" },
     card: { flexDirection: "row", backgroundColor: "#fff", borderRadius: sz(16), marginBottom: sz(14), elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: sz(4) }, shadowOpacity: 0.05, shadowRadius: sz(10), overflow: "hidden" },
-    cardLeft: { width: sz(90), justifyContent: "center", alignItems: "center", padding: sz(10), borderRightWidth: 1, borderRightColor: "#e4ebff", borderStyle: "dashed" },
+    cardLeft: { width: sz(95), justifyContent: "center", alignItems: "center", padding: sz(10), borderRightWidth: 1, borderRightColor: "#e4ebff", borderStyle: "dashed" },
     valTxt: { color: "#fff", fontSize: sz(22), fontWeight: "900" },
     typeTxt: { color: "rgba(255,255,255,0.8)", fontSize: sz(9), fontWeight: "800", marginTop: sz(4) },
     cardRight: { flex: 1, padding: sz(14), justifyContent: "center" },
     cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: sz(6), gap: sz(4) },
     titleTxt: { fontWeight: "800", color: "#1f2a58", fontSize: sz(14), flex: 1 },
-    srcBadge: { backgroundColor: "#eaf0ff", borderRadius: sz(6), paddingHorizontal: sz(8), paddingVertical: sz(3) },
-    srcTxt: { color: "#2856d6", fontSize: sz(9), fontWeight: "800" },
+    srcBadge: { borderRadius: sz(6), paddingHorizontal: sz(8), paddingVertical: sz(3) },
+    srcTxt: { fontSize: sz(9), fontWeight: "800" },
     voucherDesc: { color: "#5f73a9", fontSize: sz(12), lineHeight: sz(18), marginBottom: sz(8) },
     cardBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: sz(4) },
     codeRow: { flexDirection: "row", alignItems: "center", gap: sz(6) },
     code: { color: "#1f2a58", fontWeight: "800", fontSize: sz(14), letterSpacing: 1 },
     copyBtn: { flexDirection: "row", alignItems: "center", gap: sz(4), backgroundColor: "#eaf0ff", paddingHorizontal: sz(12), paddingVertical: sz(6), borderRadius: sz(8) },
     copyBtnTxt: { color: "#2856d6", fontSize: sz(12), fontWeight: "700" },
-    usedLabel: { color: "#dc2626", fontSize: sz(12), fontWeight: "700" },
+    usedBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    usedLabel: { color: "#10b981", fontSize: sz(12), fontWeight: "700" },
     alertOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "center", alignItems: "center", padding: sz(24) },
     alertBox: { backgroundColor: "#fff", width: "100%", borderRadius: 24, padding: 24, alignItems: "center", elevation: 10 },
     alertIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },
