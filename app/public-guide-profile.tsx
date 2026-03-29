@@ -1,24 +1,15 @@
 /**
  * app/public-guide-profile.tsx
- * Trang Hồ sơ công khai HDV - Phản chiếu 100% UI trang cá nhân, Local Data, Phân quyền Role
+ * Trang Hồ sơ công khai HDV - Bổ sung hiển thị Học vấn, Bằng cấp
+ * ĐÃ FIX LỖI: Thêm lại hàm handleSelectTourSchedule
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import {
-  Image, ImageBackground, ScrollView, StatusBar, StyleSheet, Text,
-  TouchableOpacity, useWindowDimensions, View, ActivityIndicator, Platform
-} from "react-native";
+import { Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GUIDES } from "@/constants/travel-data"; // Fallback nếu app mới cài chưa có local data
 
-const STORAGE_KEY = "@guide_profile";
-const TOURS_STORAGE = "@app_tours";
-const BOOKINGS_STORAGE = "@app_bookings_history";
-const GUIDES_STORAGE = "@app_guides";
-
-// Hàm xử lý an toàn để hiển thị chuỗi (Fix triệt để lỗi Type 'any' và Hardcode)
 const safeString = (val: any): string => {
   if (!val) return "Chưa cập nhật";
   if (Array.isArray(val)) return val.join(', ');
@@ -29,244 +20,226 @@ export default function PublicGuideProfile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const scale = width / 375;
+  const scale = Math.min(width / 375, 1.2);
   const s = useMemo(() => getStyles(scale), [scale]);
-  
-  const { id, tourId } = useLocalSearchParams();
 
+  const { id } = useLocalSearchParams();
   const [profile, setProfile] = useState<any>(null);
-  const [stats, setStats] = useState({ tours: 0, bookings: 0, rating: "0.0" });
-  const [isLoading, setIsLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string>('guest');
+  
+  const [showTourModal, setShowTourModal] = useState(false);
+  const [availableTours, setAvailableTours] = useState<any[]>([]);
 
-  useFocusEffect(
-    useCallback(() => {
-      const fetchPublicData = async () => {
-        try {
-          // 1. Phân quyền Role
-          const currentRole = await AsyncStorage.getItem('@current_user_role');
-          if (currentRole) setUserRole(currentRole);
-
-          // 2. Lấy dữ liệu Thống kê hệ thống
-          let tCount = 0, bCount = 0;
-          const rawTours = await AsyncStorage.getItem(TOURS_STORAGE);
-          const rawBookings = await AsyncStorage.getItem(BOOKINGS_STORAGE);
-          const toursList = rawTours ? JSON.parse(rawTours) : [];
-          bCount = rawBookings ? JSON.parse(rawBookings).length : 0;
-
-          // 3. Truy xuất chính xác Data Local của HDV
-          let targetProfile = null;
-
-          // 3a. Ưu tiên kiểm tra xem có phải Profile HDV đang đăng nhập (đã lưu local) không
-          const rawLocalProfile = await AsyncStorage.getItem(STORAGE_KEY);
-          if (rawLocalProfile) {
-             const localP = JSON.parse(rawLocalProfile);
-             if (localP.guideId === id || (!localP.guideId && id === 'g1') || !id) {
-                targetProfile = localP;
-             }
-          }
-
-          // 3b. Nếu không phải HDV đang login, tìm trong danh sách HDV của hệ thống (Admin duyệt)
-          if (!targetProfile) {
-             const rawGuides = await AsyncStorage.getItem(GUIDES_STORAGE);
-             if (rawGuides) {
-                const systemGuides = JSON.parse(rawGuides);
-                targetProfile = systemGuides.find((g: any) => g.id === id);
-             } else {
-                // Fallback lần đầu chạy app
-                targetProfile = GUIDES.find((g: any) => g.id === id);
-             }
-          }
-
-          // 4. Đổ dữ liệu vào UI (Phản chiếu chính xác những gì HDV đã nhập)
-          if (targetProfile) {
-             const finalName = targetProfile.name || "HDV Chưa cập nhật tên";
-             
-             setProfile({
-                 name: finalName,
-                 location: targetProfile.location || "Chưa cập nhật địa điểm",
-                 experience: targetProfile.experience || "Chưa cập nhật",
-                 bio: targetProfile.bio || "Hướng dẫn viên này chưa cập nhật lời giới thiệu.",
-                 skills: safeString(targetProfile.skills),
-                 hobbies: safeString(targetProfile.hobbies),
-                 awards: safeString(targetProfile.awards),
-                 education: safeString(targetProfile.education),
-                 cccd: targetProfile.cccd || "000000000000",
-                 dob: targetProfile.dob || "Chưa cập nhật",
-                 avatarUrl: targetProfile.avatarUrl || targetProfile.avatar || null,
-                 coverUrl: targetProfile.coverUrl || 'https://images.unsplash.com/photo-1559586616-361e18714958?w=800',
-                 vneidVerified: targetProfile.vneidVerified ?? (targetProfile.verified !== false),
-             });
-
-             tCount = toursList.filter((t: any) => t.assignedGuideNames?.includes(finalName)).length || targetProfile.tours || 0;
-             setStats({ 
-                 tours: tCount, 
-                 bookings: bCount, 
-                 rating: (targetProfile.rating || 5.0).toFixed(1) 
-             });
-          }
-        } catch (e) {
-          console.log("Error loading public profile", e);
-        } finally {
-          setIsLoading(false);
+  useFocusEffect(useCallback(() => {
+    const loadData = async () => {
+      try {
+        const rawGuides = await AsyncStorage.getItem("@app_guides");
+        if (rawGuides) {
+          const list = JSON.parse(rawGuides);
+          const found = list.find((g: any) => g.id === id);
+          if (found) setProfile(found);
         }
-      };
+        const rawTours = await AsyncStorage.getItem("@app_tours");
+        if (rawTours) setAvailableTours(JSON.parse(rawTours).filter((t:any) => t.status === 'active'));
+      } catch (e) {}
+    };
+    loadData();
+  }, [id]));
 
-      fetchPublicData();
-    }, [id])
-  );
+  // HÀM ĐÃ ĐƯỢC THÊM LẠI ĐỂ FIX BUG
+  const handleSelectTourSchedule = (tour: any, schedule: any) => {
+    setShowTourModal(false);
+    router.push({
+      pathname: '/guest_booking_flow',
+      params: { tourId: tour.id, guideId: profile.id, schStart: schedule.startTime, schEnd: schedule.endTime }
+    } as any);
+  };
 
-  if (isLoading) {
-    return (
-      <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#4f7cff" />
-      </View>
-    );
-  }
-
-  if (!profile) {
-    return (
-      <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Ionicons name="person-circle-outline" size={64} color="#cbd5e1" style={{ marginBottom: 10 }}/>
-        <Text style={{ color: "#7a8cc2", fontWeight: "600" }}>Không tìm thấy hồ sơ HDV này.</Text>
-        <TouchableOpacity style={{ marginTop: 20 }} onPress={() => router.back()}>
-           <Text style={{ color: "#4f7cff", fontWeight: "800" }}>Quay lại</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  if (!profile) return <View style={s.screen} />;
 
   return (
-    <View style={s.container}>
+    <View style={s.screen}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-      
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: Math.round(100 * scale) }}>
-        
-        {/* ẢNH BÌA TRÀN VIỀN - Giao diện giống y trang cá nhân */}
-        <ImageBackground source={{ uri: profile.coverUrl }} style={[s.coverImage, { paddingTop: insets.top }]}>
-          <View style={s.coverOverlay}>
-            <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </ImageBackground>
 
-        <View style={s.mainBody}>
-          {/* PROFILE CARD */}
-          <View style={s.profileCard}>
-            <View style={s.avatarWrap}>
-              {profile.avatarUrl ? (
-                <Image source={{ uri: profile.avatarUrl }} style={s.avatarImg} />
-              ) : (
-                <Text style={s.avatarTxt}>{(profile.name || "U").charAt(0)}</Text>
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <View style={s.coverBox}>
+          <Image source={{ uri: profile.coverUrl || 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800' }} style={s.coverImg} />
+          <TouchableOpacity style={[s.backBtn, { top: insets.top + 10 }]} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="#1f2a58" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={s.profileCard}>
+          <Image source={{ uri: profile.avatar || profile.avatarUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' }} style={s.avatarImg} />
+          <View style={s.nameRow}>
+            <Text style={s.nameTxt}>{profile.name}</Text>
+            {profile.vneidVerified && <Ionicons name="checkmark-circle" size={18} color="#10b981" />}
+          </View>
+          <Text style={s.locationTxt}><Ionicons name="location" size={12}/> {safeString(profile.location)}</Text>
+          
+          <View style={s.tagsRow}>
+             {profile.isLocal && <View style={s.verifyBadge}><Ionicons name="home" size={12} color="#10b981"/><Text style={s.verifyTxt}>Người địa phương</Text></View>}
+             {profile.vneidVerified && <View style={s.verifyBadge}><Ionicons name="finger-print" size={12} color="#4f7cff"/><Text style={[s.verifyTxt, {color:'#4f7cff'}]}>Đã xác thực VNeID</Text></View>}
+          </View>
+
+          <View style={s.statsRow}>
+            <View style={s.statItem}>
+               <Ionicons name="star" size={20} color="#f59e0b" />
+               <Text style={s.statVal}>{profile.rating || '5.0'}</Text>
+               <Text style={s.statLbl}>Đánh giá</Text>
+            </View>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+               <Ionicons name="map" size={20} color="#4f7cff" />
+               <Text style={s.statVal}>{profile.tours || 0}</Text>
+               <Text style={s.statLbl}>Tour đã dẫn</Text>
+            </View>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+               <Ionicons name="time" size={20} color="#10b981" />
+               <Text style={s.statVal}>{safeString(profile.experience || '1 năm')}</Text>
+               <Text style={s.statLbl}>Kinh nghiệm</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={s.infoCard}>
+          <Text style={s.infoCardTitle}>Tiểu sử</Text>
+          <Text style={s.bioTxt}>{profile.bio || "Xin chào, tôi là một người đam mê du lịch."}</Text>
+          
+          {(profile.videoUrl || (profile.galleryUrls && profile.galleryUrls.length > 0)) && (
+            <View style={s.mediaBox}>
+              {profile.videoUrl && (
+                <View style={s.videoWrapper}>
+                  <Image source={{uri: 'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=600'}} style={s.videoCover} />
+                  <View style={s.playBtn}><Ionicons name="play" size={30} color="#fff" /></View>
+                  <View style={s.videoLabel}><Text style={{color:'#fff', fontSize: 10, fontWeight: 'bold'}}>Video Giới thiệu</Text></View>
+                </View>
               )}
-            </View>
-            <View style={s.profileInfo}>
-              <Text style={s.name}>{profile.name}</Text>
-              <Text style={s.subInfo}><Ionicons name="location" size={12} /> {profile.location} · {profile.experience}</Text>
-              <View style={s.badgesRow}>
-                <View style={s.hdvBadge}><Ionicons name="shield-checkmark" size={12} color="#10b981" /><Text style={s.hdvBadgeTxt}>HDV Đã xác minh</Text></View>
-                {profile.vneidVerified && (
-                  <View style={[s.hdvBadge, { backgroundColor: "#eaf0ff" }]}><Ionicons name="checkmark-circle" size={12} color="#4f7cff" /><Text style={[s.hdvBadgeTxt, { color: "#4f7cff" }]}>VNeID</Text></View>
-                )}
-              </View>
-            </View>
-          </View>
-
-          {/* VNEID CARD - Đã che số CCCD bảo mật */}
-          {profile.vneidVerified && (
-            <View style={s.verificationCard}>
-                <View style={s.verifyHeader}><Ionicons name="finger-print" size={16} color="#059669" /><Text style={s.verifyHeaderTxt}>ĐỊNH DANH ĐẢM BẢO</Text></View>
-                <View style={s.verifyRow}><Text style={s.verifyLabel}>Căn cước công dân:</Text><Text style={s.verifyValue}>*** *** *** {profile.cccd.slice(-3)}</Text></View>
-                <View style={s.verifyRow}><Text style={s.verifyLabel}>Ngày sinh:</Text><Text style={s.verifyValue}>{profile.dob}</Text></View>
-                <View style={s.verifyRow}><Text style={s.verifyLabel}>Học vấn:</Text><Text style={s.verifyValue}>{profile.education}</Text></View>
+              {profile.galleryUrls && profile.galleryUrls.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10, marginTop: 10}}>
+                  {profile.galleryUrls.map((url:string, i:number) => (
+                    <Image key={i} source={{uri: url}} style={s.galleryImg} />
+                  ))}
+                </ScrollView>
+              )}
             </View>
           )}
 
-          {/* STATS CARD */}
-          <View style={s.statsCard}>
-            <View style={s.statItem}><Ionicons name="star" size={18} color="#f59e0b" /><Text style={s.statVal}>{stats.rating}</Text><Text style={s.statLbl}>Đánh giá</Text></View>
-            <View style={s.statDivider} />
-            <View style={s.statItem}><Ionicons name="map" size={18} color="#4f7cff" /><Text style={s.statVal}>{stats.tours}</Text><Text style={s.statLbl}>Tour hoàn thành</Text></View>
-            <View style={s.statDivider} />
-            <View style={s.statItem}><Ionicons name="calendar" size={18} color="#10b981" /><Text style={s.statVal}>{stats.bookings}</Text><Text style={s.statLbl}>Booking nhận</Text></View>
+          <View style={s.skillBox}>
+             <Text style={s.skillTitle}>HỌC VẤN & CHUYÊN MÔN</Text>
+             {profile.education ? (
+               <View style={s.certRow}><Ionicons name="school" size={16} color="#10b981"/><Text style={s.certTxt}>{profile.education}</Text><Ionicons name="checkmark-circle" size={14} color="#10b981"/></View>
+             ) : null}
+             {profile.certifications ? (
+               <View style={s.certRow}><Ionicons name="ribbon" size={16} color="#4f7cff"/><Text style={s.certTxt}>{profile.certifications}</Text><Ionicons name="checkmark-circle" size={14} color="#10b981"/></View>
+             ) : null}
+             {!profile.education && !profile.certifications && <Text style={{fontSize:13, color:'#94a3b8'}}>Đang cập nhật hồ sơ chuyên môn.</Text>}
           </View>
 
-          {/* INFO DETAILS - Sử dụng SkillBox giống hệt trang cá nhân */}
-          <View style={s.infoCard}>
-            <Text style={s.infoCardTitle}>Giới thiệu bản thân</Text>
-            <Text style={s.bioTxt}>{profile.bio}</Text>
-            
-            <View style={s.skillBox}><Text style={s.skillTitle}>Kỹ năng chuyên môn</Text><Text style={s.skillContent}>{profile.skills}</Text></View>
-            <View style={s.skillBox}><Text style={s.skillTitle}>Sở thích cá nhân</Text><Text style={s.skillContent}>{profile.hobbies}</Text></View>
-            <View style={s.skillBox}><Text style={s.skillTitle}>Chứng nhận & Giải thưởng</Text><Text style={s.skillContent}>{profile.awards}</Text></View>
+          <View style={[s.skillBox, { borderTopWidth: 0 }]}>
+             <Text style={s.skillTitle}>SỞ THÍCH & KỸ NĂNG</Text>
+             <View style={s.chipsRow}>
+                {(profile.hobbies || []).concat(profile.skills || []).map((h:string, i:number) => (
+                   <View key={i} style={s.chip}><Text style={s.chipTxt}>{h}</Text></View>
+                ))}
+             </View>
+             
+             <Text style={[s.skillTitle, {marginTop: 16}]}>NGÔN NGỮ</Text>
+             <View style={s.chipsRow}>
+                {(profile.languages || []).map((l:string, i:number) => (
+                   <View key={i} style={s.chip}><Text style={s.chipTxt}>{l}</Text></View>
+                ))}
+             </View>
           </View>
-
         </View>
       </ScrollView>
 
-      {/* THANH ĐIỀU HƯỚNG - Chỉ hiển thị cho Khách hàng (Guest) */}
-      {userRole !== 'admin' && (
-        <View style={[s.bottomBar, { paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, 12) : 16 }]}>
-          <TouchableOpacity style={s.chatBtn} onPress={() => alert("Tính năng Nhắn tin đang được phát triển!")}>
-            <Ionicons name="chatbubble-ellipses" size={20} color="#4f7cff" />
-            <Text style={s.chatBtnTxt}>Nhắn tin</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.bookBtn} onPress={() => router.push({ pathname: '/guest_booking_flow', params: { guideId: id, tourId: tourId } })}>
-            <Text style={s.bookBtnTxt}>Yêu cầu dẫn Tour</Text>
-          </TouchableOpacity>
+      <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <TouchableOpacity style={s.bookBtn} onPress={() => setShowTourModal(true)}>
+           <Text style={s.bookBtnTxt}>Yêu cầu dẫn tour</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Modal visible={showTourModal} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={[s.modalBox, { maxHeight: '85%' }]}>
+            <Text style={s.modalTitle}>Chọn chuyến đi cùng {profile.name}</Text>
+            <ScrollView showsVerticalScrollIndicator={false} style={{width: '100%', marginBottom: 20}}>
+              {availableTours.map(t => (
+                <View key={t.id} style={s.tourChoiceCard}>
+                  <Text style={s.tourChoiceName}>{t.name}</Text>
+                  <Text style={s.tourChoiceLoc}>{t.departure} · {t.duration}</Text>
+                  <View style={s.schList}>
+                    {(t.schedules || []).filter((s:any) => new Date(s.startTime).getTime() > Date.now()).map((sch: any) => (
+                      <TouchableOpacity key={sch.id} style={s.schBtn} onPress={() => handleSelectTourSchedule(t, sch)}>
+                        <Text style={s.schBtnTxt}>{new Date(sch.startTime).toLocaleString('vi-VN')}</Text>
+                        <Ionicons name="chevron-forward" size={14} color="#4f7cff" />
+                      </TouchableOpacity>
+                    ))}
+                    {(!t.schedules || t.schedules.length === 0) && <Text style={{fontSize: 12, color: '#ef4444'}}>Tour chưa có lịch trình.</Text>}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={s.closeModalBtn} onPress={() => setShowTourModal(false)}><Text style={s.closeModalBtnTxt}>Hủy bỏ</Text></TouchableOpacity>
+          </View>
         </View>
-      )}
+      </Modal>
     </View>
   );
 }
 
-// BỘ STYLE RESPONSIVE (Sao chép nguyên bản 100% từ guide-profile.tsx của bạn)
 const getStyles = (scale: number) => {
-  const sz = (size: number) => Math.round(size * scale);
+  const sz = (val: number) => Math.round(val * scale);
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: "#f3f7ff" },
-    coverImage: { width: "100%", height: sz(220), justifyContent: "flex-start", backgroundColor: "#1f2a58" },
-    coverOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.3)", paddingHorizontal: sz(20), paddingTop: sz(10), flexDirection: "row" },
-    backBtn: { width: sz(40), height: sz(40), borderRadius: sz(12), backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-    
-    mainBody: { paddingHorizontal: sz(16), marginTop: sz(-50) },
-    profileCard: { backgroundColor: "#fff", borderRadius: sz(20), padding: sz(16), flexDirection: "row", alignItems: "center", gap: sz(14), marginBottom: sz(16), elevation: 5, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10 },
-    avatarWrap: { width: sz(76), height: sz(76), borderRadius: sz(24), backgroundColor: "#4f7cff", alignItems: "center", justifyContent: "center", borderWidth: 3, borderColor: "#fff", elevation: 2, overflow: "hidden" },
-    avatarImg: { width: "100%", height: "100%", borderRadius: sz(21) },
-    avatarTxt: { color: "#fff", fontSize: sz(28), fontWeight: "900" },
-    profileInfo: { flex: 1 },
-    name: { color: "#1f2a58", fontWeight: "900", fontSize: sz(19), marginBottom: sz(4) },
-    subInfo: { color: "#64748b", fontSize: sz(12), fontWeight: "600" },
-    badgesRow: { flexDirection: "row", flexWrap: "wrap", gap: sz(6), marginTop: sz(8) },
-    hdvBadge: { flexDirection: "row", alignItems: "center", gap: sz(4), backgroundColor: "#d1fae5", borderRadius: sz(8), paddingHorizontal: sz(8), paddingVertical: sz(4) },
-    hdvBadgeTxt: { color: "#059669", fontSize: sz(10), fontWeight: "800" },
-    
-    verificationCard: { backgroundColor: "#d1fae5", borderRadius: sz(14), padding: sz(14), marginBottom: sz(16), borderWidth: 1, borderColor: "#a7f3d0" },
-    verifyHeader: { flexDirection: "row", alignItems: "center", gap: sz(6), marginBottom: sz(8) },
-    verifyHeaderTxt: { color: "#059669", fontWeight: "900", fontSize: sz(13) },
-    verifyRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: sz(4) },
-    verifyLabel: { color: "#065f46", fontSize: sz(12) },
-    verifyValue: { color: "#064e3b", fontSize: sz(12), fontWeight: "700" },
-    
-    statsCard: { flexDirection: "row", backgroundColor: "#fff", borderRadius: sz(16), paddingVertical: sz(16), marginBottom: sz(16), elevation: 2 },
+    screen: { flex: 1, backgroundColor: "#f8faff" },
+    content: { paddingBottom: sz(100) },
+    coverBox: { width: "100%", height: sz(220), position: "relative" },
+    coverImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+    backBtn: { position: "absolute", left: sz(16), width: sz(40), height: sz(40), borderRadius: sz(12), backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 2 },
+    profileCard: { backgroundColor: "#fff", borderRadius: sz(20), padding: sz(16), marginHorizontal: sz(16), marginTop: -sz(40), marginBottom: sz(16), elevation: 5, alignItems: "center" },
+    avatarImg: { width: sz(80), height: sz(80), borderRadius: sz(24), borderWidth: 4, borderColor: "#fff", marginTop: -sz(40), marginBottom: sz(10) },
+    nameRow: { flexDirection: "row", alignItems: "center", gap: sz(6) },
+    nameTxt: { fontSize: sz(20), fontWeight: "900", color: "#1f2a58" },
+    locationTxt: { fontSize: sz(13), color: "#64748b", marginTop: sz(4) },
+    tagsRow: { flexDirection: 'row', gap: sz(6), marginTop: sz(8) },
+    verifyBadge: { flexDirection: 'row', alignItems: 'center', gap: sz(4), backgroundColor: '#dcfce7', paddingHorizontal: sz(8), paddingVertical: sz(4), borderRadius: sz(8) },
+    verifyTxt: { fontSize: sz(10), fontWeight: '700', color: '#10b981' },
+    statsRow: { flexDirection: "row", alignItems: "center", marginTop: sz(16), paddingTop: sz(16), borderTopWidth: 1, borderTopColor: "#f0f4ff", width: "100%" },
     statItem: { flex: 1, alignItems: "center" },
-    statDivider: { width: 1, backgroundColor: "#f0f4ff" },
+    statDivider: { width: 1, height: sz(30), backgroundColor: "#e4ebff" },
     statVal: { fontSize: sz(18), fontWeight: "900", color: "#1f2a58", marginTop: sz(4) },
     statLbl: { fontSize: sz(11), color: "#7a8cc2", marginTop: sz(2), fontWeight: "600" },
-    
-    infoCard: { backgroundColor: "#fff", borderRadius: sz(16), padding: sz(16), marginBottom: sz(20), elevation: 1 },
+    infoCard: { backgroundColor: "#fff", borderRadius: sz(16), padding: sz(16), marginHorizontal: sz(16), marginBottom: sz(20), elevation: 1 },
     infoCardTitle: { color: "#1f2a58", fontWeight: "900", fontSize: sz(15), marginBottom: sz(8) },
     bioTxt: { color: "#475569", fontSize: sz(14), lineHeight: sz(24) },
-    skillBox: { marginTop: sz(12), paddingTop: sz(12), borderTopWidth: 1, borderTopColor: "#f0f4ff" },
-    skillTitle: { fontSize: sz(12), color: "#94a8d8", fontWeight: "800", marginBottom: sz(4) },
-    skillContent: { fontSize: sz(14), color: "#1f2a58", fontWeight: "600", lineHeight: sz(22) },
-
-    bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#fff", flexDirection: "row", paddingHorizontal: sz(16), paddingVertical: sz(12), borderTopWidth: 1, borderTopColor: "#e4ebff", elevation: 10, gap: sz(12) },
-    chatBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: sz(8), backgroundColor: "#eaf0ff", borderRadius: sz(14), height: sz(50) },
-    chatBtnTxt: { color: "#4f7cff", fontSize: sz(15), fontWeight: "800" },
-    bookBtn: { flex: 1.5, backgroundColor: "#4f7cff", borderRadius: sz(14), alignItems: "center", justifyContent: "center", height: sz(50) },
-    bookBtnTxt: { color: "#fff", fontSize: sz(15), fontWeight: "900" },
+    mediaBox: { marginTop: sz(16) },
+    videoWrapper: { width: '100%', height: sz(180), borderRadius: sz(16), overflow: 'hidden', position: 'relative', justifyContent: 'center', alignItems: 'center' },
+    videoCover: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 0.8, backgroundColor: '#000' },
+    playBtn: { width: sz(50), height: sz(50), borderRadius: sz(25), backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
+    videoLabel: { position: 'absolute', top: sz(10), left: sz(10), backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: sz(8), paddingVertical: sz(4), borderRadius: sz(6) },
+    galleryImg: { width: sz(120), height: sz(120), borderRadius: sz(12) },
+    skillBox: { marginTop: sz(16), paddingTop: sz(16), borderTopWidth: 1, borderTopColor: "#f0f4ff" },
+    skillTitle: { fontSize: sz(12), color: "#94a8d8", fontWeight: "800", marginBottom: sz(8) },
+    certRow: { flexDirection: 'row', alignItems: 'center', gap: sz(6), backgroundColor: '#f8fafc', padding: sz(10), borderRadius: sz(8), marginBottom: sz(6) },
+    certTxt: { flex: 1, fontSize: sz(13), color: '#1f2a58', fontWeight: '600' },
+    chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: sz(6) },
+    chip: { backgroundColor: '#f1f5f9', paddingHorizontal: sz(10), paddingVertical: sz(6), borderRadius: sz(8), borderWidth: 1, borderColor: '#e2e8f0' },
+    chipTxt: { fontSize: sz(12), color: '#475569', fontWeight: '600' },
+    bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#fff", flexDirection: "row", paddingHorizontal: sz(16), paddingTop: sz(12), borderTopWidth: 1, borderTopColor: "#e4ebff", elevation: 10, gap: sz(10) },
+    bookBtn: { flex: 1, backgroundColor: "#4f7cff", borderRadius: sz(16), alignItems: "center", justifyContent: "center", paddingVertical: sz(16) },
+    bookBtnTxt: { color: "#fff", fontWeight: "900", fontSize: sz(16) },
+    modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.6)", justifyContent: "flex-end" },
+    modalBox: { backgroundColor: "#fff", borderTopLeftRadius: sz(24), borderTopRightRadius: sz(24), padding: sz(20), alignItems: "center" },
+    modalTitle: { fontSize: sz(18), fontWeight: "900", color: "#1f2a58", marginBottom: sz(6), textAlign: "center" },
+    tourChoiceCard: { width: '100%', backgroundColor: '#f8fafc', borderRadius: sz(14), padding: sz(14), marginBottom: sz(12), borderWidth: 1, borderColor: '#e2e8f0' },
+    tourChoiceName: { fontSize: sz(15), fontWeight: '800', color: '#1f2a58', marginBottom: sz(2) },
+    tourChoiceLoc: { fontSize: sz(12), color: '#64748b', marginBottom: sz(10) },
+    schList: { gap: sz(6) },
+    schBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: sz(10), borderRadius: sz(8), borderWidth: 1, borderColor: '#e4ebff' },
+    schBtnTxt: { color: '#4f7cff', fontWeight: '700', fontSize: sz(13) },
+    closeModalBtn: { width: '100%', backgroundColor: '#f1f5f9', paddingVertical: sz(14), borderRadius: sz(14), alignItems: 'center' },
+    closeModalBtnTxt: { color: '#64748b', fontWeight: '800', fontSize: sz(14) }
   });
 };

@@ -1,6 +1,7 @@
 /**
  * app/(tabs)/index.tsx
  * Trang chủ Guest - FIX LỖI: GUIDE_AVATARS, Loại bỏ Emoji Text, Thay bằng Vector Icons
+ * Lấy 100% dữ liệu từ Local Storage
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -111,13 +112,25 @@ export default function HomeScreen() {
       const rawGuideProfile = await AsyncStorage.getItem('@guide_profile');
       if (rawGuideProfile) {
         const gp = JSON.parse(rawGuideProfile);
-        const realGuide = {
-          id: gp.guideId || 'g_me_01', name: gp.name, location: gp.location,
-          experience: gp.experience, skills: gp.skills ? gp.skills.split(',').map((x:string) => x.trim()) : [],
-          rating: 5.0, tours: 10, match: 98, status: 'active', avatar: gp.avatarUrl || GUIDE_AVATARS[0],
-        };
-        loadedGuides = [realGuide, ...loadedGuides.filter(g => g.id !== realGuide.id)];
+        // ✅ FIX: Dùng guideId thật, không fallback về g_me_01
+        if (gp.guideId && gp.name) {
+          const realGuide = {
+            id: gp.guideId, name: gp.name, location: gp.location,
+            experience: gp.experience, skills: gp.skills ? gp.skills.split(',').map((x:string) => x.trim()) : [],
+            rating: 5.0, tours: 10, match: 98, status: 'active', avatar: gp.avatarUrl || GUIDE_AVATARS[0],
+          };
+          // Loại trùng theo cả id lẫn tên
+          loadedGuides = [
+            realGuide,
+            ...loadedGuides.filter(g =>
+              g.id !== realGuide.id &&
+              g.name?.trim().toLowerCase() !== realGuide.name.trim().toLowerCase()
+            ),
+          ];
+        }
       }
+
+      await AsyncStorage.setItem('@app_guides', JSON.stringify(loadedGuides));
 
       const profile = await AsyncStorage.getItem('@app_profile').then(r => r ? JSON.parse(r) : { name: 'bạn' });
       const notifRaw = await AsyncStorage.getItem('@guest_notifications');
@@ -233,7 +246,6 @@ export default function HomeScreen() {
               <Text style={s.resetTxt}>Đặt lại</Text>
             </TouchableOpacity>
           </View>
-          {/* Thay Emoji thành Icon bên trong Text/View */}
           <View style={s.filterGroupLabelRow}><Ionicons name="wallet-outline" size={14} color="#7a8cc2" /><Text style={s.filterGroupLabel}>Ngân sách</Text></View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.fChipRow}>
             {BUDGET_OPTIONS.map(opt => (

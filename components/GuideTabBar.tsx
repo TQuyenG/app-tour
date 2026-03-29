@@ -38,7 +38,7 @@ const GUIDE_MENU_GROUPS = [
   {
     title: "Tương tác & Thống kê",
     items: [
-      { icon: "chatbubbles-outline", iconActive: "chatbubbles", label: "Chat với khách", route: "guide-chat", color: "#06b6d4" },
+      { icon: "chatbubbles-outline", iconActive: "chatbubbles", label: "Chat với khách", route: "guide_chat_list", color: "#06b6d4" },
       { icon: "notifications-outline", iconActive: "notifications", label: "Thông báo", route: "guide-notifications", color: "#ef4444" },
       { icon: "cash-outline", iconActive: "cash", label: "Thu nhập", route: "guide-earnings", color: "#f59e0b" },
       { icon: "bar-chart-outline", iconActive: "bar-chart", label: "Analytics", route: "guide-analytics", color: "#6366f1" },

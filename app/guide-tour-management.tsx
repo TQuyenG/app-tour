@@ -1,6 +1,7 @@
 /**
  * app/guide-tour-management.tsx
- * Quản lý Tour của HDV - Đã FIX: Xóa Ghi chú, Popup Nhập Lý do, Đăng ký lại
+ * Quản lý Tour của HDV - Chuyên dụng cho Tìm Tour (Market) & Đề xuất Tour mới
+ * Đã chuyển phần Lịch sử sang guide-booking-management.tsx
  */
 import { GuideTabBar } from "@/components/GuideTabBar";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,15 +9,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  Dimensions, KeyboardAvoidingView, Modal, Platform, ScrollView,
+  KeyboardAvoidingView, Modal, Platform, ScrollView,
   StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const STORAGE_KEY = "@app_tours";
 const PROFILE_KEY = "@guide_profile";
-
-const CURRENT_GUIDE = { id: "g_me_01", name: "Trần Minh Khoa", note: "" };
 
 interface AppliedGuide { id: string; name: string; note: string; vneidVerified?: boolean; }
 interface RejectedGuide { id: string; name: string; reason: string; }
@@ -36,24 +35,25 @@ const CATEGORIES = ["Tất cả", "Biển đảo", "Núi rừng", "Văn hóa", "
 const FILTER_TABS = [
   { key: "all", label: "Tất cả" },
   { key: "active", label: "Kho Tour" },
-  { key: "assigned", label: "Lịch của tôi" },
+  { key: "assigned", label: "Đã nộp đơn" },
 ];
 
 export default function GuideTourManagement() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  
   const [tours, setTours] = useState<GuideTour[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState("active");
   const [filterCat, setFilterCat] = useState("Tất cả");
   const [isVneidVerified, setIsVneidVerified] = useState(false);
 
-  // Modals
+  const [currentGuide, setCurrentGuide] = useState<{ id: string; name: string; note: string }>({
+    id: "", name: "", note: ""
+  });
+
   const [applyModal, setApplyModal] = useState<{ visible: boolean; tourId: string }>({ visible: false, tourId: "" });
   const [applyNote, setApplyNote] = useState("");
-  const [reportModal, setReportModal] = useState<GuideTour | null>(null);
-  const [reportText, setReportText] = useState("");
-  const [proposeModal, setProposeModal] = useState(false);
 
   const [confirmPopup, setConfirmPopup] = useState<{
     visible: boolean; type: "success" | "error" | "confirm"; title: string; message: string; onConfirm?: () => void;
@@ -61,10 +61,21 @@ export default function GuideTourManagement() {
 
   useFocusEffect(
     useCallback(() => {
-      AsyncStorage.getItem(STORAGE_KEY).then((raw) => { if (raw) setTours(JSON.parse(raw)); });
-      AsyncStorage.getItem(PROFILE_KEY).then((raw) => {
-        if (raw) setIsVneidVerified(JSON.parse(raw).vneidVerified || false);
-      });
+      const loadAllData = async () => {
+        let gId = ""; let gName = "";
+        const rawProf = await AsyncStorage.getItem(PROFILE_KEY);
+        if (rawProf) {
+          const p = JSON.parse(rawProf);
+          gId = p.guideId || "";
+          gName = p.name || "";
+          setIsVneidVerified(p.vneidVerified || false);
+          setCurrentGuide({ id: gId, name: gName, note: "" });
+        }
+
+        const rawTours = await AsyncStorage.getItem(STORAGE_KEY);
+        if (rawTours) setTours(JSON.parse(rawTours));
+      };
+      loadAllData();
     }, [])
   );
 
@@ -82,21 +93,36 @@ export default function GuideTourManagement() {
     setApplyModal({ visible: true, tourId: id });
   };
 
-  const executeApplyTour = () => {
+  const executeApplyTour = async () => {
     if (!applyModal.tourId) return;
     if (!applyNote.trim()) {
       showPopup("error", "Thiếu thông tin", "Vui lòng nhập lý do/thế mạnh của bạn để Admin ưu tiên.");
       return;
     }
-    
+
     const updated = tours.map(t => {
       if (t.id === applyModal.tourId) {
         const applied = t.appliedGuides || [];
-        return { ...t, appliedGuides: [...applied, { ...CURRENT_GUIDE, note: applyNote, vneidVerified: isVneidVerified }] };
+        return { ...t, appliedGuides: [...applied, { ...currentGuide, note: applyNote, vneidVerified: isVneidVerified }] };
       }
       return t;
     });
     persist(updated);
+
+    try {
+      const newApp = {
+        id: `app-${Date.now()}`,
+        guideId: currentGuide.id, guideName: currentGuide.name,
+        guideNote: applyNote, tourId: applyModal.tourId,
+        vneidVerified: isVneidVerified, status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+      const rawApps = await AsyncStorage.getItem("@guide_tour_applications");
+      const apps: any[] = rawApps ? JSON.parse(rawApps) : [];
+      apps.unshift(newApp);
+      await AsyncStorage.setItem("@guide_tour_applications", JSON.stringify(apps));
+    } catch (e) {}
+
     setApplyModal({ visible: false, tourId: "" });
     showPopup("success", "Đã gửi yêu cầu", "Admin sẽ xem xét và phê duyệt dựa trên lý do của bạn.");
   };
@@ -106,9 +132,9 @@ export default function GuideTourManagement() {
       const updated = tours.map(t => {
         if (t.id === id) {
           const applied = t.appliedGuides || [];
-          const rejected = t.rejectedGuides?.filter(g => g.id !== CURRENT_GUIDE.id) || [];
-          if (applied.some(g => g.id === CURRENT_GUIDE.id)) return t;
-          return { ...t, appliedGuides: [...applied, { ...CURRENT_GUIDE, note: "Xin đăng ký lại tour này.", vneidVerified: isVneidVerified }], rejectedGuides: rejected };
+          const rejected = t.rejectedGuides?.filter(g => g.id !== currentGuide.id) || [];
+          if (applied.some(g => g.id === currentGuide.id)) return t;
+          return { ...t, appliedGuides: [...applied, { ...currentGuide, note: "Xin đăng ký lại tour này.", vneidVerified: isVneidVerified }], rejectedGuides: rejected };
         }
         return t;
       });
@@ -117,26 +143,11 @@ export default function GuideTourManagement() {
     });
   };
 
-  const handleSendReport = () => {
-    if (!reportModal || !reportText.trim()) return;
-    const newReport: TourReport = {
-      id: `rep-${Date.now()}`, guideName: CURRENT_GUIDE.name, text: reportText, 
-      date: new Date().toLocaleDateString('vi-VN'), isResolved: false
-    };
-    const updated = tours.map(t => {
-      if (t.id === reportModal.id) return { ...t, reports: [...(t.reports || []), newReport] };
-      return t;
-    });
-    persist(updated);
-    setReportModal(null); setReportText("");
-    showPopup("success", "Đã gửi báo cáo", "Góp ý của bạn đã được ghi nhận và chuyển đến Admin.");
-  };
-
   const getMyStatus = (tour: GuideTour) => {
-    if (tour.rejectedGuides?.some(g => g.id === CURRENT_GUIDE.id)) return { label: "Bị từ chối", color: "#ef4444", bg: "#fee2e2", icon: "close-circle" as const, key: "rejected" };
+    if (tour.rejectedGuides?.some(g => g.id === currentGuide.id)) return { label: "Bị từ chối", color: "#ef4444", bg: "#fee2e2", icon: "close-circle" as const, key: "rejected" };
     if (tour.status === "draft") return { label: "Chờ duyệt", color: "#d97706", bg: "#fef3c7", icon: "time-outline" as const, key: "draft" };
-    if (tour.assignedGuideNames?.includes(CURRENT_GUIDE.name)) return { label: "Đã phân công", color: "#4f7cff", bg: "#eaf0ff", icon: "checkmark-circle-outline" as const, key: "assigned" };
-    if (tour.appliedGuides?.some(g => g.id === CURRENT_GUIDE.id)) return { label: "Đang xét duyệt", color: "#8b5cf6", bg: "#ede9fe", icon: "hourglass-outline" as const, key: "registered" };
+    if (tour.assignedGuideNames?.includes(currentGuide.name)) return { label: "Đã phân công", color: "#4f7cff", bg: "#eaf0ff", icon: "checkmark-circle-outline" as const, key: "assigned" };
+    if (tour.appliedGuides?.some(g => g.id === currentGuide.id)) return { label: "Đang xét duyệt", color: "#8b5cf6", bg: "#ede9fe", icon: "hourglass-outline" as const, key: "registered" };
     if (tour.status === "full") return { label: "Đã đầy", color: "#ef4444", bg: "#fee2e2", icon: "close-circle-outline" as const, key: "full" };
     return { label: "Đang mở", color: "#10b981", bg: "#dcfce7", icon: "add-circle-outline" as const, key: "active" };
   };
@@ -164,10 +175,10 @@ export default function GuideTourManagement() {
             <Ionicons name="arrow-back" size={20} color="#1f2a58" />
           </TouchableOpacity>
           <View>
-            <Text style={s.headerTitle}>Kho Tour Hệ Thống</Text>
-            <Text style={s.headerSub}>{tours.length} tour đang có</Text>
+            <Text style={s.headerTitle}>Chợ Tour</Text>
+            <Text style={s.headerSub}>Tìm tour phù hợp để dẫn</Text>
           </View>
-          <TouchableOpacity style={[s.iconBtn, { backgroundColor: "#4f7cff" }]} onPress={() => setProposeModal(true)}>
+          <TouchableOpacity style={[s.iconBtn, { backgroundColor: "#4f7cff" }]} onPress={() => alert('Sẽ mở form đề xuất tour')}>
             <Ionicons name="add" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -202,7 +213,7 @@ export default function GuideTourManagement() {
         {filtered.map((tour) => {
           const myStat = getMyStatus(tour);
           const isOpen = expandedId === tour.id;
-          const myRejectInfo = tour.rejectedGuides?.find(g => g.id === CURRENT_GUIDE.id);
+          const myRejectInfo = tour.rejectedGuides?.find(g => g.id === currentGuide.id);
 
           return (
             <View key={tour.id} style={s.card}>
@@ -214,9 +225,7 @@ export default function GuideTourManagement() {
                     <Text style={[s.statusTxt, { color: myStat.color }]}>{myStat.label}</Text>
                   </View>
                 </View>
-
                 <Text style={s.tourName} numberOfLines={2}>{tour.name}</Text>
-
                 <View style={s.metaRow}>
                   <View style={s.metaItem}><Ionicons name="time-outline" size={12} color="#7a8cc2" /><Text style={s.metaTxt} numberOfLines={1}>{tour.duration || "—"}</Text></View>
                   <View style={s.metaItem}><Ionicons name="location-outline" size={12} color="#7a8cc2" /><Text style={s.metaTxt} numberOfLines={1}>{tour.departure || "—"}</Text></View>
@@ -225,7 +234,6 @@ export default function GuideTourManagement() {
 
               <View style={s.cardFooter}>
                 <Text style={s.priceTxt}>{Number(tour.priceRaw).toLocaleString("vi-VN")}đ</Text>
-
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   {myStat.key === "active" && (
                     <TouchableOpacity style={[s.smartBtn, { backgroundColor: "#4f7cff" }]} onPress={() => openApplyModal(tour.id)}>
@@ -265,18 +273,9 @@ export default function GuideTourManagement() {
                         <Text style={[s.infoBlockValue, { fontStyle: "italic", color: "#b91c1c" }]}>"{myRejectInfo.reason}"</Text>
                      </View>
                   )}
-
                   {tour.description ? (
                     <View style={s.infoBlock}><Text style={s.infoBlockLabel}>CHI TIẾT / LỊCH TRÌNH</Text><Text style={s.infoBlockValue}>{tour.description}</Text></View>
                   ) : null}
-
-                  {myStat.key === "assigned" && (
-                    <View style={s.actionRow}>
-                      <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fee2e2", flex: 1 }]} onPress={() => { setReportText(""); setReportModal(tour); }}>
-                        <Ionicons name="warning-outline" size={13} color="#ef4444" /><Text style={[s.actionTxt, { color: "#ef4444" }]}>Báo cáo sự cố Tour</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
                 </View>
               )}
             </View>
@@ -297,42 +296,18 @@ export default function GuideTourManagement() {
             <View style={s.modalBody}>
               <Text style={[s.formLabel, { marginTop: 0, fontWeight: "700", marginBottom: 4 }]}>Vì sao bạn phù hợp với Tour này?</Text>
               <Text style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>VD: Tôi có 3 năm kinh nghiệm tuyến này, tiếng Anh tốt...</Text>
-              <TextInput 
-                style={[s.input, { minHeight: 100, textAlignVertical: "top" }]} 
-                value={applyNote} 
-                onChangeText={setApplyNote} 
-                placeholder="Nhập lợi thế của bạn để thuyết phục Admin..." 
-                placeholderTextColor="#b0bdd8" 
-                multiline 
-                autoFocus 
+              <TextInput
+                style={[s.input, { minHeight: 100, textAlignVertical: "top" }]}
+                value={applyNote}
+                onChangeText={setApplyNote}
+                placeholder="Nhập lợi thế của bạn để thuyết phục Admin..."
+                placeholderTextColor="#b0bdd8"
+                multiline
+                autoFocus
               />
               <TouchableOpacity style={s.saveBtn} onPress={executeApplyTour}>
                 <Ionicons name="paper-plane-outline" size={18} color="#fff" />
                 <Text style={s.saveBtnTxt}>Gửi Yêu Cầu Cho Admin</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* MODAL BÁO CÁO SỰ CỐ */}
-      <Modal visible={!!reportModal} animationType="fade" transparent>
-        <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={() => setReportModal(null)} />
-          <View style={s.sheet}>
-            <View style={s.handle} />
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Báo cáo sự cố Tour</Text>
-              <TouchableOpacity onPress={() => setReportModal(null)} style={s.closeBtn}><Ionicons name="close" size={18} color="#7a8cc2" /></TouchableOpacity>
-            </View>
-            {reportModal && (
-              <View style={[s.tourInfoStrip, { marginHorizontal: 20, marginTop: 4 }]}><Ionicons name="map-outline" size={13} color="#4f7cff" /><Text style={s.tourInfoStripTxt} numberOfLines={1}>{reportModal.name}</Text></View>
-            )}
-            <View style={s.modalBody}>
-              <TextInput style={[s.input, { minHeight: 100, textAlignVertical: "top" }]} value={reportText} onChangeText={setReportText} placeholder="Nêu rõ sự cố (Sửa chữa lộ trình, khách gặp vấn đề...)" placeholderTextColor="#b0bdd8" multiline autoFocus />
-              <TouchableOpacity style={[s.saveBtn, { backgroundColor: "#ef4444" }]} onPress={handleSendReport}>
-                <Ionicons name="warning-outline" size={18} color="#fff" />
-                <Text style={s.saveBtnTxt}>Gửi Báo Cáo Cho Admin</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -370,7 +345,7 @@ const s = StyleSheet.create({
   stickyTop: { backgroundColor: "#fff", zIndex: 10, elevation: 5, shadowColor: "#1f2a58", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.07, shadowRadius: 8, },
   topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, },
   iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
-  headerTitle: { fontSize: 16, fontWeight: "800", color: "#1f2a58", textAlign: "center" },
+  headerTitle: { fontSize: 18, fontWeight: "900", color: "#1f2a58", textAlign: "center" },
   headerSub: { fontSize: 11, color: "#94a8d8", textAlign: "center", marginTop: 1 },
   filterTabRow: { borderTopWidth: 1, borderTopColor: "#f0f4ff" },
   catFilterRow: { borderTopWidth: 1, borderTopColor: "#f0f4ff" },
@@ -406,9 +381,6 @@ const s = StyleSheet.create({
   infoBlock: { backgroundColor: "#f8fafc", borderRadius: 10, padding: 10, marginBottom: 7, borderWidth: 1, borderColor: "#e2e8f0" },
   infoBlockLabel: { color: "#94a8d8", fontSize: 10, fontWeight: "800", marginBottom: 4, letterSpacing: 0.5 },
   infoBlockValue: { color: "#1f2a58", fontSize: 12, lineHeight: 18 },
-  actionRow: { flexDirection: "row", gap: 7, marginTop: 4 },
-  actionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9 },
-  actionTxt: { fontSize: 12, fontWeight: "700" },
   overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,18,50,0.5)" },
   sheet: { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22 },
@@ -417,8 +389,6 @@ const s = StyleSheet.create({
   modalTitle: { fontSize: 16, fontWeight: "800", color: "#1f2a58" },
   closeBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
   modalBody: { padding: 18, paddingBottom: 36 },
-  tourInfoStrip: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#eaf0ff", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginBottom: 4, },
-  tourInfoStripTxt: { color: "#4f7cff", fontSize: 12, fontWeight: "600", flex: 1 },
   formLabel: { fontSize: 14, color: "#1f2a58" },
   input: { backgroundColor: "#f8fafc", borderRadius: 10, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 14, paddingVertical: 12, color: "#1f2a58", fontSize: 13, },
   saveBtn: { marginTop: 18, backgroundColor: "#4f7cff", borderRadius: 12, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, },
