@@ -7,7 +7,8 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import React, { useCallback, useRef, useState, useMemo } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChatSession, getAllChats, sendMessage, markAsRead } from "@/constants/chat-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ChatSession, getAllChats, sendMessage, markAsRead, initOrGetSupportChat, sendSupportMessage, markSupportChatRead } from "@/constants/chat-store";
 
 export default function GuideChatDetail() {
   const router = useRouter();
@@ -17,17 +18,33 @@ export default function GuideChatDetail() {
   const scale = Math.min(width / 375, 1.2);
   const s = useMemo(() => getStyles(scale), [scale]);
 
-  const { bookingId } = useLocalSearchParams();
-  const [session, setSession] = useState<ChatSession | null>(null);
+  const { bookingId, type } = useLocalSearchParams();
+  const [messages, setMessages] = useState<any[]>([]);
+  const [title, setTitle] = useState("Đang tải...");
+  const [subTitle, setSubTitle] = useState("");
   const [inputText, setInputText] = useState("");
 
   const loadChat = async () => {
     if (!bookingId) return;
-    const chats = await getAllChats();
-    const currentChat = chats.find(c => c.bookingId === bookingId);
-    if (currentChat) {
-      setSession(currentChat);
-      await markAsRead(bookingId as string, 'guide');
+
+    if (type === 'staff') {
+      const userRaw = await AsyncStorage.getItem("@app_current_user");
+      const uObj = userRaw ? JSON.parse(userRaw) : { accountId: 'guide_temp', name: 'Hướng dẫn viên' };
+      
+      const current = await initOrGetSupportChat({ id: uObj.accountId, name: uObj.name, role: 'guide' });
+      setMessages(current.messages || []);
+      setTitle("Tổng đài CSKH");
+      setSubTitle("Hỗ trợ đối tác 24/7");
+      await markSupportChatRead(uObj.accountId, 'user');
+    } else {
+      const chats = await getAllChats();
+      const currentChat = chats.find(c => c.bookingId === bookingId);
+      if (currentChat) {
+        setMessages(currentChat.messages);
+        setTitle(currentChat.guestName || "Khách hàng");
+        setSubTitle(`Tour: ${currentChat.tourName}`);
+        await markAsRead(bookingId as string, 'guide');
+      }
     }
   };
 
@@ -42,25 +59,24 @@ export default function GuideChatDetail() {
     const currentText = inputText.trim();
     setInputText(""); 
     
-    const newMsg = { from: 'guide' as const, text: currentText, time: new Date().toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'}) };
-    if (session) {
-       setSession({ ...session, messages: [...session.messages, newMsg] });
-       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-    }
+    const newMsg = { from: type === 'staff' ? 'user' : 'guide', text: currentText, time: new Date().toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'}) };
+    setMessages(prev => [...prev, newMsg]);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 
-    await sendMessage(bookingId as string, 'guide', currentText);
+    if (type === 'staff') {
+      const userRaw = await AsyncStorage.getItem("@app_current_user");
+      const uObj = userRaw ? JSON.parse(userRaw) : { accountId: 'guide_temp' };
+      await sendSupportMessage(uObj.accountId, 'user', currentText);
+    } else {
+      await sendMessage(bookingId as string, 'guide', currentText);
+    }
     await loadChat();
   };
 
   const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/guide_chat_list"); // Trả về Danh sách Chat HDV
-    }
+    if (router.canGoBack()) router.back();
+    else router.replace("/guide_chat_list");
   };
-
-  if (!session) return <View style={s.screen} />;
 
   return (
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -71,24 +87,28 @@ export default function GuideChatDetail() {
         <TouchableOpacity onPress={handleBack} style={s.backBtn}>
           <Ionicons name="arrow-back" size={Math.round(24*scale)} color="#1f2a58" />
         </TouchableOpacity>
-        <View style={s.avatar}><Text style={s.avatarTxt}>{session.guestName.charAt(0)}</Text></View>
+        <View style={[s.avatar, type === 'staff' && { backgroundColor: '#f59e0b' }]}><Text style={s.avatarTxt}>{title.charAt(0)}</Text></View>
         <View style={s.headerInfo}>
-          <Text style={s.name} numberOfLines={1}>{session.guestName}</Text>
-          <Text style={s.sub} numberOfLines={1}>Tour: {session.tourName}</Text>
+          <Text style={s.name} numberOfLines={1}>{title}</Text>
+          <Text style={s.sub} numberOfLines={1}>{subTitle}</Text>
         </View>
-        <TouchableOpacity style={s.iconCircleBtn} onPress={() => router.push({ pathname: '/shared-booking-detail', params: { bookingId: session.bookingId } } as any)}>
-            <Ionicons name="receipt-outline" size={Math.round(18*scale)} color="#10b981" />
-        </TouchableOpacity>
+        {type !== 'staff' && (
+          <TouchableOpacity style={s.iconCircleBtn} onPress={() => router.push({ pathname: '/shared-booking-detail', params: { bookingId: bookingId } } as any)}>
+              <Ionicons name="receipt-outline" size={Math.round(18*scale)} color="#10b981" />
+          </TouchableOpacity>
+        )}
       </View>
 
-      <FlatList ref={flatListRef} data={session.messages} keyExtractor={(_, index) => `msg_${index}`} contentContainerStyle={s.messageList} showsVerticalScrollIndicator={false} onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+      <FlatList ref={flatListRef} data={messages} keyExtractor={(_, index) => `msg_${index}`} contentContainerStyle={s.messageList} showsVerticalScrollIndicator={false} onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
         renderItem={({ item }) => {
           if (item.from === 'system') return <Text style={s.sysMsg}>{item.text}</Text>;
-          const isSelf = item.from === "guide";
+          const isSelf = item.from === "guide" || item.from === "user";
           return (
             <View style={[s.msgWrapper, isSelf ? s.msgWrapperRight : s.msgWrapperLeft]}>
               <View style={isSelf ? s.bubbleBlockRight : s.bubbleBlockLeft}>
-                <View style={[s.bubble, isSelf ? s.bubbleSelf : s.bubbleOther]}><Text style={[s.bubbleText, isSelf ? s.bubbleTextSelf : s.bubbleTextOther]}>{item.text}</Text></View>
+                <View style={[s.bubble, isSelf ? (type === 'staff' ? s.bubbleStaff : s.bubbleSelf) : s.bubbleOther]}>
+                  <Text style={[s.bubbleText, isSelf ? s.bubbleTextSelf : s.bubbleTextOther]}>{item.text}</Text>
+                </View>
                 <Text style={[s.msgTime, isSelf ? s.msgTimeRight : s.msgTimeLeft]}>{item.time}</Text>
               </View>
             </View>
@@ -99,14 +119,15 @@ export default function GuideChatDetail() {
       <View style={[s.inputArea, { paddingBottom: Math.max(insets.bottom, Math.round(12*scale)) }]}>
         <TouchableOpacity style={s.toolBtn}><Ionicons name="add" size={Math.round(24*scale)} color="#64748b" /></TouchableOpacity>
         <TouchableOpacity style={s.toolBtn}><Ionicons name="camera-outline" size={Math.round(22*scale)} color="#64748b" /></TouchableOpacity>
-        <TouchableOpacity style={s.toolBtn}><Ionicons name="happy-outline" size={Math.round(22*scale)} color="#64748b" /></TouchableOpacity>
         
         <View style={s.textInputWrapper}>
-          <TextInput style={s.textInput} value={inputText} onChangeText={setInputText} placeholder="Trả lời khách..." placeholderTextColor="#94a3b8" multiline />
+          <TextInput style={s.textInput} value={inputText} onChangeText={setInputText} placeholder="Trả lời..." placeholderTextColor="#94a3b8" multiline />
         </View>
         
         {inputText.trim() ? (
-           <TouchableOpacity style={s.sendBtn} onPress={handleSendMessage}><Ionicons name="send" size={Math.round(16*scale)} color="#fff" /></TouchableOpacity>
+           <TouchableOpacity style={[s.sendBtn, type === 'staff' && { backgroundColor: '#f59e0b' }]} onPress={handleSendMessage}>
+             <Ionicons name="send" size={Math.round(16*scale)} color="#fff" />
+           </TouchableOpacity>
         ) : (
            <TouchableOpacity style={s.toolBtn}><Ionicons name="mic-outline" size={Math.round(24*scale)} color="#64748b" /></TouchableOpacity>
         )}
@@ -138,6 +159,7 @@ const getStyles = (scale: number) => {
     bubbleBlockRight: { alignItems: "flex-end" },
     bubble: { paddingHorizontal: sz(14), paddingVertical: sz(10), borderRadius: sz(20) },
     bubbleSelf: { backgroundColor: "#10b981", borderBottomRightRadius: sz(4) },
+    bubbleStaff: { backgroundColor: "#f59e0b", borderBottomRightRadius: sz(4) },
     bubbleOther: { backgroundColor: "#fff", borderBottomLeftRadius: sz(4), borderWidth: 1, borderColor: "#e2e8f0" },
     bubbleText: { fontSize: sz(14), lineHeight: sz(20) },
     bubbleTextSelf: { color: "#fff" },

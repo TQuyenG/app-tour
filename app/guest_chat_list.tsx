@@ -1,6 +1,6 @@
 /**
  * app/guest_chat_list.tsx
- * Danh sách hội thoại của Khách hàng
+ * Danh sách hội thoại của Khách hàng (Tích hợp CSKH)
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -8,7 +8,7 @@ import { useFocusEffect, useRouter, Stack } from "expo-router";
 import React, { useCallback, useState, useMemo } from "react";
 import { ActivityIndicator, FlatList, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getAllChats, ChatSession } from "@/constants/chat-store";
+import { getAllChats, ChatSession, getAllSupportChats, SupportSession } from "@/constants/chat-store";
 
 export default function GuestChatList() {
   const router = useRouter();
@@ -21,25 +21,28 @@ export default function GuestChatList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
-  const [rawStaffChats, setRawStaffChats] = useState<any[]>([]);
+  const [rawStaffChats, setRawStaffChats] = useState<SupportSession[]>([]);
   const [rawGuideChats, setRawGuideChats] = useState<ChatSession[]>([]);
+  const [currentGuestId, setCurrentGuestId] = useState("guest_temp");
 
   useFocusEffect(
     useCallback(() => {
       const loadData = async () => {
         try {
-          const staffRaw = await AsyncStorage.getItem("@guest_staff_chats");
-          setRawStaffChats(staffRaw ? JSON.parse(staffRaw) : []);
-
           let guestId = 'guest_temp';
           const userRaw = await AsyncStorage.getItem("@app_current_user");
           if (userRaw) guestId = JSON.parse(userRaw).accountId;
+          setCurrentGuestId(guestId);
 
+          // 1. Tải Chat Hỗ trợ (Staff)
+          const staffChats = await getAllSupportChats();
+          setRawStaffChats(staffChats.filter(c => c.userId === guestId));
+
+          // 2. Tải Chat HDV
           const allChats = await getAllChats();
-          // Lọc chat của đúng user hiện tại (hoặc các chat tạm chưa có owner)
           const myGuideChats = allChats.filter(c => c.guestId === guestId || !c.guestId || c.guestId === 'guest_temp');
-          setRawGuideChats(myGuideChats.length > 0 ? myGuideChats : allChats);
-        } catch (e) {} finally { setIsLoading(false); }
+          setRawGuideChats(myGuideChats);
+        } catch (e) { console.error(e); } finally { setIsLoading(false); }
       };
       loadData();
       const interval = setInterval(loadData, 3000);
@@ -48,9 +51,16 @@ export default function GuestChatList() {
   );
 
   const getProcessedList = () => {
-    let list = activeTab === "staff" 
-      ? rawStaffChats.map(c => ({ id: c.id, title: c.staffName || "CSKH", sub: c.topic || "Hỗ trợ", lastMsg: c.lastMessage, unread: c.unread || 0, color: '#f59e0b', type: 'staff' }))
-      : rawGuideChats.map(c => ({ id: c.bookingId, title: c.guideName || "HDV", sub: c.tourName || "Tour", lastMsg: c.lastMessage, unread: c.unreadGuest || 0, color: '#10b981', type: 'guide' }));
+    let list: any[] = [];
+    if (activeTab === "staff") {
+      list = rawStaffChats.map(c => ({ id: c.userId, title: "Tổng đài CSKH", sub: "Hỗ trợ Hệ thống", lastMsg: c.lastMessage, unread: c.unreadUser || 0, color: '#f59e0b', type: 'staff' }));
+      // Nếu chưa có chat CSKH nào, tạo một mục giả để Khách có thể bấm vào yêu cầu hỗ trợ
+      if (list.length === 0) {
+        list = [{ id: currentGuestId, title: "Tổng đài CSKH", sub: "Hỗ trợ 24/7", lastMsg: "Chạm để nhắn tin với nhân viên", unread: 0, color: '#f59e0b', type: 'staff' }];
+      }
+    } else {
+      list = rawGuideChats.map(c => ({ id: c.bookingId, title: c.guideName || "HDV", sub: c.tourName || "Tour", lastMsg: c.lastMessage, unread: c.unreadGuest || 0, color: '#10b981', type: 'guide' }));
+    }
     
     if (searchQuery.trim()) list = list.filter(i => (i.title||"").toLowerCase().includes(searchQuery.toLowerCase()));
     return list;
@@ -59,17 +69,13 @@ export default function GuestChatList() {
   const dataList = getProcessedList();
 
   const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/"); // Khách về trang chủ nếu không có lịch sử
-    }
+    if (router.canGoBack()) router.back();
+    else router.replace("/"); 
   };
 
   return (
     <View style={s.screen}>
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
-      {/* Fix bar đen của Expo Router */}
       <Stack.Screen options={{ headerShown: false }} /> 
 
       <View style={[s.header, { paddingTop: insets.top + Math.round(10*scale) }]}>
@@ -129,8 +135,8 @@ const getStyles = (scale: number) => {
     title: { flex: 1, textAlign: 'center', fontSize: sz(18), fontWeight: "800", color: "#0f172a" },
     tabContainer: { flexDirection: "row", backgroundColor: "#fff", paddingHorizontal: sz(16), paddingVertical: sz(12), gap: sz(12) },
     tabItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: sz(6), paddingVertical: sz(12), borderRadius: sz(14), backgroundColor: "#f1f5f9" },
-    tabItemActive: { backgroundColor: "#4f7cff" },
-    tabItemActive_Guide: { backgroundColor: "#10b981" },
+    tabItemActive: { backgroundColor: "#f59e0b" },
+    tabItemActive_Guide: { backgroundColor: "#4f7cff" },
     tabText: { fontSize: sz(14), fontWeight: "600", color: "#64748b" },
     tabTextActive: { color: "#fff" },
     searchContainer: { paddingHorizontal: sz(16), paddingTop: sz(12), paddingBottom: sz(4) },

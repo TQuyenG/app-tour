@@ -1,13 +1,12 @@
 /**
  * app/staff-profile.tsx
- * Profile màn hình Staff CSKH
+ * Hồ sơ Staff CSKH - Dữ liệu thực, Nút Back chuẩn UX
  */
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import {
-  ScrollView, StatusBar, StyleSheet,
-  Text, TouchableOpacity, View,
-} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import { Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StaffTabBar } from "@/components/StaffTabBar";
 
@@ -15,145 +14,131 @@ const MENU_ITEMS = [
   { icon: "receipt-outline",     label: "Quản lý Booking",        route: "/staff-booking-management",  color: "#2856d6" },
   { icon: "refresh-outline",     label: "Xử lý Hoàn tiền",       route: "/staff-refund-management",   color: "#d97706" },
   { icon: "warning-outline",     label: "Khiếu nại & Tranh chấp", route: "/staff-complaints",          color: "#dc2626" },
-  { icon: "chatbubbles-outline", label: "Live Chat",               route: "/staff-livechat",            color: "#16a34a" },
-  { icon: "ticket-outline",      label: "Gửi Voucher",             route: "/staff-voucher-send",        color: "#f59e0b" },
-  { icon: "flag-outline",        label: "Kiểm duyệt Review",      route: "/staff-review-moderation",  color: "#dc2626" },
+  { icon: "chatbubbles-outline", label: "Live Chat Hỗ trợ",      route: "/staff-livechat",            color: "#16a34a" },
+  { icon: "ticket-outline",      label: "Cấp phát Voucher",      route: "/staff-voucher-send",        color: "#f59e0b" },
+  { icon: "flag-outline",        label: "Kiểm duyệt Review",     route: "/staff-review-moderation",   color: "#dc2626" },
 ] as const;
 
 export default function StaffProfile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [profile, setProfile] = useState<any>({});
 
-  const profile = {
-    name: "Lê Thị CSKH", email: "staff1@gmail.com",
-    phone: "0911 000 111", joined: "Tham gia từ 01/2025",
-    stats: { handled: 128, refunds: 34, vouchers: 52, rating: "4.9★" },
+  useFocusEffect(useCallback(() => {
+    AsyncStorage.getItem("@staff_profile").then(raw => {
+      if (raw) setProfile(JSON.parse(raw));
+      else {
+        // Fallback mặc định nếu chưa ai set profile
+        setProfile({
+          name: "Nhân viên CSKH", email: "support@localmate.vn", phone: "1900 1508",
+          avatar: "https://ui-avatars.com/api/?name=CSKH&background=f59e0b&color=fff",
+          resolvedCases: 128, avgRating: 4.9
+        });
+      }
+    });
+  }, []));
+
+  const handleLogout = () => {
+    Alert.alert("Đăng xuất", "Bạn có chắc chắn muốn đăng xuất khỏi ca trực?", [
+      { text: "Hủy", style: "cancel" },
+      { text: "Đăng xuất", style: "destructive", onPress: async () => {
+          await AsyncStorage.removeItem("@app_current_user");
+          router.replace("/login");
+      }}
+    ]);
   };
 
   return (
-    <View style={s.screen}>
+    <View style={s.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-      <ScrollView
-        contentContainerStyle={[s.content, { paddingTop: insets.top + 14, paddingBottom: 80 }]}
-      >
-        <Text style={s.title}>Hồ sơ</Text>
+      
+      {/* HEADER: DÙNG ROUTER.BACK() */}
+      <View style={[s.header, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => router.back()} style={s.iconBtn}>
+          <Ionicons name="arrow-back" size={22} color="#1f2a58" />
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>Hồ sơ nhân viên</Text>
+        <TouchableOpacity style={s.iconBtn}>
+          <Ionicons name="settings-outline" size={22} color="#1f2a58" />
+        </TouchableOpacity>
+      </View>
 
-        {/* Profile card */}
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.profileCard}>
-          <View style={s.avatar}>
-            <Ionicons name="headset" size={26} color="#f59e0b" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.name}>{profile.name}</Text>
-            <Text style={s.email}>{profile.email}</Text>
-            <View style={s.roleBadge}>
-              <Ionicons name="headset" size={11} color="#f59e0b" />
-              <Text style={s.roleText}>CSKH Staff</Text>
+          <Image source={{ uri: profile.avatar }} style={s.avatar} />
+          <Text style={s.name}>{profile.name}</Text>
+          <Text style={s.role}>Chuyên viên Hỗ trợ Khách hàng</Text>
+          
+          <View style={s.statsRow}>
+            <View style={s.statItem}>
+              <Text style={s.statVal}>{profile.resolvedCases || 0}</Text>
+              <Text style={s.statLbl}>Case đã xử lý</Text>
+            </View>
+            <View style={s.dividerVert} />
+            <View style={s.statItem}>
+              <Text style={s.statVal}>{profile.avgRating || "5.0"}★</Text>
+              <Text style={s.statLbl}>Đánh giá TB</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={() => router.replace("/login" as any)}>
-            <Ionicons name="log-out-outline" size={22} color="#7a8cc2" />
-          </TouchableOpacity>
         </View>
 
-        {/* Stats */}
-        <View style={s.statsCard}>
-          <Text style={s.statsTitle}>Thống kê cá nhân</Text>
-          <View style={s.statsGrid}>
-            {[
-              { label: "Đã xử lý",  value: profile.stats.handled,  icon: "checkmark-circle-outline", color: "#2856d6" },
-              { label: "Hoàn tiền", value: profile.stats.refunds,   icon: "refresh-outline",          color: "#d97706" },
-              { label: "Voucher",   value: profile.stats.vouchers,  icon: "ticket-outline",           color: "#f59e0b" },
-              { label: "Đánh giá",  value: profile.stats.rating,    icon: "star-outline",             color: "#16a34a" },
-            ].map((s2, i) => (
-              <View key={i} style={[s.statItem, { backgroundColor: s2.color + "15" }]}>
-                <Ionicons name={s2.icon as any} size={18} color={s2.color} />
-                <Text style={[s.statValue, { color: s2.color }]}>{s2.value}</Text>
-                <Text style={s.statLabel}>{s2.label}</Text>
-              </View>
-            ))}
+        <View style={s.infoBlock}>
+          <View style={s.infoRow}>
+            <Ionicons name="mail-outline" size={18} color="#7a8cc2" />
+            <Text style={s.infoTxt}>{profile.email}</Text>
+          </View>
+          <View style={s.dividerHorz} />
+          <View style={s.infoRow}>
+            <Ionicons name="call-outline" size={18} color="#7a8cc2" />
+            <Text style={s.infoTxt}>{profile.phone}</Text>
           </View>
         </View>
 
-        {/* Info */}
-        <View style={s.infoCard}>
-          {[
-            { icon: "call-outline", label: "Điện thoại", value: profile.phone },
-            { icon: "mail-outline", label: "Email",       value: profile.email },
-            { icon: "calendar-outline", label: "Ngày tham gia", value: profile.joined },
-          ].map((item, i, arr) => (
-            <View key={i}>
-              <View style={s.infoRow}>
-                <View style={s.infoIcon}>
-                  <Ionicons name={item.icon as any} size={15} color="#f59e0b" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.infoLabel}>{item.label}</Text>
-                  <Text style={s.infoValue}>{item.value}</Text>
-                </View>
-              </View>
-              {i < arr.length - 1 && <View style={s.divider} />}
-            </View>
-          ))}
-        </View>
-
-        {/* Menu */}
-        <Text style={s.sectionTitle}>Chức năng</Text>
+        <Text style={s.sectionTitle}>Công cụ nghiệp vụ</Text>
         {MENU_ITEMS.map((item, i) => (
-          <TouchableOpacity
-            key={i}
-            style={s.menuItem}
-            onPress={() => router.push(item.route as any)}
-            activeOpacity={0.75}
-          >
-            <View style={[s.menuIcon, { backgroundColor: item.color + "18" }]}>
+          <TouchableOpacity key={i} style={s.menuBtn} onPress={() => router.push(item.route as any)}>
+            <View style={[s.menuIconWrap, { backgroundColor: item.color + "15" }]}>
               <Ionicons name={item.icon as any} size={20} color={item.color} />
             </View>
-            <Text style={s.menuText}>{item.label}</Text>
-            <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />
+            <Text style={s.menuTxt}>{item.label}</Text>
+            <Ionicons name="chevron-forward" size={18} color="#c0cbe8" />
           </TouchableOpacity>
         ))}
 
-        {/* Logout */}
-        <TouchableOpacity
-          style={s.logoutBtn}
-          onPress={() => router.replace("/login" as any)}
-        >
-          <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-          <Text style={s.logoutText}>Đăng xuất</Text>
+        <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={20} color="#dc2626" />
+          <Text style={s.logoutTxt}>Đăng xuất khỏi hệ thống</Text>
         </TouchableOpacity>
       </ScrollView>
+
       <StaffTabBar activeRoute="/staff-profile" />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f3f7ff" },
-  content: { padding: 18 },
-  title: { color: "#1f2a58", fontSize: 26, fontWeight: "700", marginBottom: 14 },
-  profileCard: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 14, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
-  avatar: { width: 56, height: 56, borderRadius: 16, backgroundColor: "#fef3c7", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#fde68a" },
-  name: { color: "#1f2a58", fontWeight: "700", fontSize: 16 },
-  email: { color: "#7a8cc2", marginTop: 3, fontSize: 13 },
-  roleBadge: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, backgroundColor: "#fef9c3", alignSelf: "flex-start", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  roleText: { color: "#d97706", fontSize: 11, fontWeight: "700" },
-  statsCard: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", padding: 16, marginBottom: 14 },
-  statsTitle: { color: "#1f2a58", fontWeight: "700", fontSize: 14, marginBottom: 12 },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  statItem: { borderRadius: 14, padding: 12, alignItems: "center", width: "47%", gap: 4 },
-  statValue: { fontSize: 18, fontWeight: "800" },
-  statLabel: { color: "#7a8cc2", fontSize: 11, fontWeight: "600" },
-  infoCard: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", marginBottom: 18 },
-  infoRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
-  infoIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#fef9c3", alignItems: "center", justifyContent: "center" },
-  infoLabel: { color: "#7a8cc2", fontSize: 11, fontWeight: "600" },
-  infoValue: { color: "#1f2a58", fontWeight: "700", fontSize: 14, marginTop: 2 },
-  divider: { height: 1, backgroundColor: "#f0f4ff", marginHorizontal: 14 },
-  sectionTitle: { color: "#1f2a58", fontWeight: "700", fontSize: 15, marginBottom: 10 },
-  menuItem: { marginBottom: 10, borderRadius: 14, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff", padding: 14, flexDirection: "row", alignItems: "center", gap: 12 },
-  menuIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  menuText: { color: "#1f2a58", fontWeight: "600", flex: 1 },
-  logoutBtn: { marginTop: 6, borderRadius: 14, backgroundColor: "#fff", borderWidth: 1, borderColor: "#fee2e2", padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
-  logoutText: { color: "#ef4444", fontWeight: "700", fontSize: 15 },
+  container: { flex: 1, backgroundColor: "#f3f7ff" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12 },
+  iconBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 2 },
+  headerTitle: { fontSize: 17, fontWeight: "800", color: "#1f2a58" },
+  content: { padding: 16, paddingBottom: 100 },
+  profileCard: { backgroundColor: "#fff", borderRadius: 20, padding: 24, alignItems: "center", elevation: 4, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, marginBottom: 16 },
+  avatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12, borderWidth: 3, borderColor: "#fef3c7" },
+  name: { fontSize: 20, fontWeight: "900", color: "#1f2a58", marginBottom: 4 },
+  role: { fontSize: 13, color: "#f59e0b", fontWeight: "700", marginBottom: 20 },
+  statsRow: { flexDirection: "row", backgroundColor: "#f8faff", borderRadius: 14, padding: 14, width: "100%" },
+  statItem: { flex: 1, alignItems: "center" },
+  statVal: { fontSize: 18, fontWeight: "900", color: "#2856d6" },
+  statLbl: { fontSize: 11, color: "#7a8cc2", marginTop: 2 },
+  dividerVert: { width: 1, backgroundColor: "#e4ebff" },
+  infoBlock: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 20 },
+  infoRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  infoTxt: { fontSize: 14, color: "#1f2a58", fontWeight: "500" },
+  dividerHorz: { height: 1, backgroundColor: "#f0f4ff", marginVertical: 12 },
+  sectionTitle: { fontSize: 15, fontWeight: "800", color: "#1f2a58", marginBottom: 12, marginLeft: 4 },
+  menuBtn: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", padding: 12, borderRadius: 16, marginBottom: 10 },
+  menuIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginRight: 12 },
+  menuTxt: { flex: 1, fontSize: 14, fontWeight: "600", color: "#1f2a58" },
+  logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#fef2f2", padding: 16, borderRadius: 16, marginTop: 10, borderWidth: 1, borderColor: "#fecaca" },
+  logoutTxt: { color: "#dc2626", fontSize: 15, fontWeight: "700" }
 });

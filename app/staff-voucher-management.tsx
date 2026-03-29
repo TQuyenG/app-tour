@@ -1,32 +1,14 @@
 /**
- * app/admin-voucher-management.tsx
- * Admin quản lý Voucher - Đã fix lỗi thiếu style emptyTxt
+ * app/staff-voucher-management.tsx
+ * Staff quản lý Voucher - Đã fix lỗi TypeScript Custom Alert
  */
-import { AdminTabBar } from "@/components/AdminTabBar";
+import { StaffTabBar } from "@/components/StaffTabBar";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { FlatList, Modal, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-type VoucherType = "percent" | "fixed";
-type VoucherGroup = "discount" | "loyalty"; 
-type VoucherStatus = "active" | "hidden";
-
-interface Voucher {
-  id: string; code: string; title: string; description: string;
-  type: VoucherType; discountValue: number; maxDiscount: number; 
-  minOrderValue: number; usageLimit: number; usedCount: number;  
-  isGiftAll: boolean; pointsCost?: number; 
-  startDate: string; endDate: string; group: VoucherGroup;
-  status: VoucherStatus; color: string;
-}
-
-const DEFAULT_FORM: Partial<Voucher> = {
-  code: "", title: "", description: "", type: "percent", group: "discount",
-  discountValue: 0, maxDiscount: 0, minOrderValue: 0, usageLimit: 0, pointsCost: 0, isGiftAll: false
-};
 
 const VOUCHER_TEMPLATES = [
   { label: "Bồi thường 50k",    sublabel: "Sự cố nhỏ",         value: 50000,  type: "fixed"   as const, reason: "Xin lỗi vì sự cố nhỏ", icon: "ribbon-outline",   color: "#94a3b8" },
@@ -35,7 +17,7 @@ const VOUCHER_TEMPLATES = [
   { label: "Bồi thường 500k",   sublabel: "Sự cố nghiêm trọng",value: 500000, type: "fixed"   as const, reason: "Sự cố nghiêm trọng", icon: "warning",          color: "#dc2626" },
 ];
 
-export default function AdminVoucherManagement() {
+export default function StaffVoucherManagement() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<"system" | "direct">("system");
@@ -45,11 +27,7 @@ export default function AdminVoucherManagement() {
     setCustomAlert({ visible: true, title, message, type });
   };
 
-  const [vouchers, setVouchers] = useState<Voucher[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [form, setForm] = useState<any>({ ...DEFAULT_FORM });
-
+  const [systemVouchers, setSystemVouchers] = useState<any[]>([]);
   const [directVouchers, setDirectVouchers] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -60,8 +38,8 @@ export default function AdminVoucherManagement() {
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
-      const vRaw = await AsyncStorage.getItem("@admin_vouchers_advanced");
-      setVouchers(vRaw ? JSON.parse(vRaw) : []);
+      const sysRaw = await AsyncStorage.getItem("@admin_vouchers_advanced");
+      setSystemVouchers(sysRaw ? JSON.parse(sysRaw).filter((v:any) => v.status === "active") : []);
       const dirRaw = await AsyncStorage.getItem("@direct_vouchers");
       setDirectVouchers(dirRaw ? JSON.parse(dirRaw) : []);
       const accRaw = await AsyncStorage.getItem("@app_accounts");
@@ -69,51 +47,6 @@ export default function AdminVoucherManagement() {
     };
     loadData();
   }, []));
-
-  const saveSystemVouchers = async (data: Voucher[]) => {
-    setVouchers(data);
-    await AsyncStorage.setItem("@admin_vouchers_advanced", JSON.stringify(data));
-  };
-
-  const handleSaveSystem = async () => {
-    if (!form.code || !form.title || !form.discountValue || !form.usageLimit) {
-      return showAlert("Thiếu thông tin", "Vui lòng điền đủ các trường bắt buộc", "error");
-    }
-    
-    const payload: Voucher = {
-      ...form,
-      discountValue: Number(form.discountValue), maxDiscount: Number(form.maxDiscount),
-      minOrderValue: Number(form.minOrderValue), usageLimit: Number(form.usageLimit),
-      pointsCost: Number(form.pointsCost),
-      usedCount: form.usedCount || 0, status: form.status || "active",
-      color: form.group === "loyalty" ? "#f59e0b" : (form.type === "percent" ? "#2856d6" : "#16a34a"),
-      startDate: form.startDate || new Date().toLocaleDateString("vi-VN"),
-      endDate: form.endDate || "31/12/2026",
-      id: form.id || Date.now().toString()
-    };
-
-    if (isEditing) {
-      await saveSystemVouchers(vouchers.map(v => v.id === payload.id ? payload : v));
-      showAlert("Thành công", "Cập nhật mã hệ thống thành công!", "success");
-    } else {
-      await saveSystemVouchers([payload, ...vouchers]);
-      showAlert("Thành công", "Đã tạo mã hệ thống mới!", "success");
-    }
-    setShowCreate(false); 
-    setForm({ ...DEFAULT_FORM });
-    setIsEditing(false);
-  };
-
-  const handleEdit = (v: Voucher) => {
-    setForm({ ...v, discountValue: v.discountValue.toString(), maxDiscount: v.maxDiscount.toString(), minOrderValue: v.minOrderValue.toString(), usageLimit: v.usageLimit.toString(), pointsCost: v.pointsCost?.toString() });
-    setIsEditing(true);
-    setShowCreate(true);
-  };
-
-  const handleToggleStatus = (v: Voucher) => {
-    const newStatus = v.status === "active" ? "hidden" : "active";
-    saveSystemVouchers(vouchers.map(item => item.id === v.id ? { ...item, status: newStatus } : item));
-  };
 
   const handleSendDirect = async () => {
     if (!selectedUser || !selectedTemplate) {
@@ -138,8 +71,14 @@ export default function AdminVoucherManagement() {
       <Modal visible={customAlert.visible} animationType="fade" transparent>
         <View style={s.alertOverlay}>
           <View style={s.alertBox}>
-            <View style={[s.alertIconWrap, { backgroundColor: customAlert.type === "error" ? "#fee2e2" : customAlert.type === "success" ? "#dcfce7" : "#e0f2fe" }]}>
-              <Ionicons name={customAlert.type === "error" ? "warning" : customAlert.type === "success" ? "checkmark-circle" : "information-circle"} size={32} color={customAlert.type === "error" ? "#dc2626" : customAlert.type === "success" ? "#16a34a" : "#0284c7"} />
+            <View style={[s.alertIconWrap, { 
+              backgroundColor: customAlert.type === "error" ? "#fee2e2" : customAlert.type === "success" ? "#dcfce7" : "#e0f2fe" 
+            }]}>
+              <Ionicons 
+                name={customAlert.type === "error" ? "warning" : customAlert.type === "success" ? "checkmark-circle" : "information-circle"} 
+                size={32} 
+                color={customAlert.type === "error" ? "#dc2626" : customAlert.type === "success" ? "#16a34a" : "#0284c7"} 
+              />
             </View>
             <Text style={s.alertTitle}>{customAlert.title}</Text>
             <Text style={s.alertMessage}>{customAlert.message}</Text>
@@ -150,9 +89,9 @@ export default function AdminVoucherManagement() {
         </View>
       </Modal>
 
-      {/* Modal Chọn User */}
+      {/* Modal User Selection */}
       <Modal visible={showUserModal} animationType="slide" transparent>
-        <View style={s.modalOverlay}>
+        <View style={s.userModalOverlay}>
           <View style={s.sheet}>
             <View style={s.modalHeader}><Text style={s.modalTitle}>Chọn Khách hàng</Text><TouchableOpacity onPress={() => setShowUserModal(false)}><Ionicons name="close" size={24} color="#1f2a58" /></TouchableOpacity></View>
             <View style={{ padding: 16 }}>
@@ -170,75 +109,11 @@ export default function AdminVoucherManagement() {
         </View>
       </Modal>
 
-      {/* Modal Tạo/Sửa Voucher Hệ Thống */}
-      <Modal visible={showCreate} animationType="slide" transparent>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
-          <View style={[s.sheet, { maxHeight: "90%" }]}>
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>{isEditing ? "Chỉnh sửa Voucher" : "Tạo mã Hệ thống"}</Text>
-              <TouchableOpacity onPress={() => { setShowCreate(false); setIsEditing(false); setForm({ ...DEFAULT_FORM }); }}><Ionicons name="close" size={24} color="#1f2a58" /></TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={s.modalBody} showsVerticalScrollIndicator={false}>
-              <Text style={s.label}>Mã Code *</Text>
-              <TextInput style={s.input} placeholder="VD: SUMMER2026" value={form.code} onChangeText={v => setForm({ ...form, code: v.toUpperCase() })} />
-              
-              <Text style={s.label}>Tên chiến dịch *</Text>
-              <TextInput style={s.input} placeholder="VD: Khuyến mãi hè" value={form.title} onChangeText={v => setForm({ ...form, title: v })} />
-
-              <Text style={s.label}>Phân loại Voucher</Text>
-              <View style={s.typeRow}>
-                <TouchableOpacity style={[s.typeBtn, form.group === "discount" && s.typeActive]} onPress={() => setForm({ ...form, group: "discount" })}><Text style={[s.typeTxt, form.group === "discount" && { color: "#fff" }]}>Mã Giảm Giá</Text></TouchableOpacity>
-                <TouchableOpacity style={[s.typeBtn, form.group === "loyalty" && s.typeActive, { backgroundColor: form.group === "loyalty" ? "#f59e0b" : "#f8fafc", borderColor: form.group === "loyalty" ? "#f59e0b" : "#e2e8f0" }]} onPress={() => setForm({ ...form, group: "loyalty" })}><Text style={[s.typeTxt, form.group === "loyalty" && { color: "#fff" }]}>Đổi Điểm</Text></TouchableOpacity>
-              </View>
-
-              {form.group === "loyalty" && (
-                <View>
-                  <Text style={s.label}>Số điểm cần để đổi *</Text>
-                  <TextInput style={s.input} keyboardType="numeric" placeholder="VD: 500" value={form.pointsCost?.toString()} onChangeText={v => setForm({ ...form, pointsCost: v })} />
-                </View>
-              )}
-
-              <Text style={s.label}>Hình thức giảm *</Text>
-              <View style={s.typeRow}>
-                <TouchableOpacity style={[s.typeBtn, form.type === "percent" && s.typeActive]} onPress={() => setForm({ ...form, type: "percent" })}><Text style={[s.typeTxt, form.type === "percent" && { color: "#fff" }]}>% Giảm</Text></TouchableOpacity>
-                <TouchableOpacity style={[s.typeBtn, form.type === "fixed" && s.typeActive]} onPress={() => setForm({ ...form, type: "fixed" })}><Text style={[s.typeTxt, form.type === "fixed" && { color: "#fff" }]}>VNĐ Giảm</Text></TouchableOpacity>
-              </View>
-
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <View style={{ flex: 1 }}><Text style={s.label}>Mức giảm *</Text><TextInput style={s.input} keyboardType="numeric" value={form.discountValue?.toString()} onChangeText={v => setForm({ ...form, discountValue: v })} /></View>
-                {form.type === "percent" && (
-                  <View style={{ flex: 1 }}><Text style={s.label}>Giảm tối đa</Text><TextInput style={s.input} keyboardType="numeric" value={form.maxDiscount?.toString()} onChangeText={v => setForm({ ...form, maxDiscount: v })} /></View>
-                )}
-              </View>
-
-              <Text style={s.label}>Đơn hàng tối thiểu (VNĐ)</Text>
-              <TextInput style={s.input} keyboardType="numeric" value={form.minOrderValue?.toString()} onChangeText={v => setForm({ ...form, minOrderValue: v })} />
-
-              <Text style={s.label}>Số lượng phát hành *</Text>
-              <TextInput style={s.input} keyboardType="numeric" value={form.usageLimit?.toString()} onChangeText={v => setForm({ ...form, usageLimit: v })} />
-
-              {form.group !== "loyalty" && (
-                <TouchableOpacity style={s.checkboxRow} onPress={() => setForm({ ...form, isGiftAll: !form.isGiftAll })}>
-                  <Ionicons name={form.isGiftAll ? "checkbox" : "square-outline"} size={24} color={form.isGiftAll ? "#16a34a" : "#94a3b8"} />
-                  <Text style={s.checkboxTxt}>Phát tự động cho mọi Khách Hàng</Text>
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity style={s.submitBtn} onPress={handleSaveSystem}><Text style={s.submitTxt}>Lưu Voucher</Text></TouchableOpacity>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
       {/* Header */}
       <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity onPress={() => router.replace("/admin-home" as any)} style={s.iconBtn}><Ionicons name="arrow-back" size={22} color="#1f2a58" /></TouchableOpacity>
+        <TouchableOpacity onPress={() => router.replace("/staff-home" as any)} style={s.iconBtn}><Ionicons name="arrow-back" size={22} color="#1f2a58" /></TouchableOpacity>
         <Text style={s.headerTitle}>Quản lý Voucher</Text>
-        {activeTab === "system" ? (
-          <TouchableOpacity onPress={() => { setForm({ ...DEFAULT_FORM }); setShowCreate(true); }} style={s.addBtn}><Ionicons name="add" size={24} color="#2856d6" /></TouchableOpacity>
-        ) : (
-          <View style={{ width: 36 }} />
-        )}
+        <View style={{ width: 36 }} />
       </View>
 
       <View style={s.tabContainer}>
@@ -248,30 +123,22 @@ export default function AdminVoucherManagement() {
 
       {activeTab === "system" ? (
         <ScrollView contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>
-          {vouchers.length === 0 ? <Text style={s.emptyTxt}>Chưa có mã hệ thống nào.</Text> : vouchers.map(v => (
-            <View key={v.id} style={[s.sysCard, v.status === "hidden" && { opacity: 0.6 }]}>
+          {systemVouchers.length === 0 ? <Text style={s.emptyTxt}>Chưa có mã hệ thống nào.</Text> : systemVouchers.map(v => (
+            <View key={v.id} style={s.sysCard}>
               <View style={s.sysCardTop}>
                 <Text style={s.sysTitle}>{v.title}</Text>
                 <View style={[s.sysBadge, { backgroundColor: v.color }]}><Text style={s.sysBadgeTxt}>{v.code}</Text></View>
               </View>
-              
-              <Text style={s.sysSub}>Giảm {v.type === "percent" ? v.discountValue+"%" : v.discountValue.toLocaleString()+"đ"} {v.maxDiscount > 0 ? ` (Tối đa ${v.maxDiscount.toLocaleString()}đ)` : ""}</Text>
+              <Text style={s.sysSub}>Giảm {v.type === "percent" ? v.discountValue+"%" : v.discountValue.toLocaleString()+"đ"} {v.maxDiscount > 0 ? `(Tối đa ${v.maxDiscount.toLocaleString()}đ)` : ""}</Text>
               <Text style={s.sysSubMin}>Đơn tối thiểu: {v.minOrderValue > 0 ? v.minOrderValue.toLocaleString()+"đ" : "0đ"}</Text>
-              
-              {v.group === "loyalty" && <View style={s.pointsBox}><Ionicons name="star" size={14} color="#d97706" /><Text style={s.pointsTxt}>Đổi bằng: {v.pointsCost} điểm</Text></View>}
-
+              {v.group === "loyalty" && (
+                <View style={s.pointsBox}><Ionicons name="star" size={14} color="#d97706" /><Text style={s.pointsTxt}>Đổi bằng: {v.pointsCost} điểm</Text></View>
+              )}
               <View style={s.usageBar}><View style={[s.usageFill, { width: `${(v.usedCount / v.usageLimit) * 100}%`, backgroundColor: v.color }]} /></View>
               <Text style={s.sysUsage}>Đã dùng: {v.usedCount} / {v.usageLimit}</Text>
-
-              <View style={s.actionRow}>
-                <TouchableOpacity style={s.actionBtn} onPress={() => handleEdit(v)}><Ionicons name="pencil" size={14} color="#2856d6" /><Text style={[s.actionTxt, { color: "#2856d6" }]}>Sửa</Text></TouchableOpacity>
-                <TouchableOpacity style={[s.actionBtn, { backgroundColor: v.status === "active" ? "#fee2e2" : "#dcfce7" }]} onPress={() => handleToggleStatus(v)}>
-                  <Ionicons name={v.status === "active" ? "eye-off" : "eye"} size={14} color={v.status === "active" ? "#dc2626" : "#16a34a"} />
-                  <Text style={[s.actionTxt, { color: v.status === "active" ? "#dc2626" : "#16a34a" }]}>{v.status === "active" ? "Ẩn" : "Hiện"}</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           ))}
+          <Text style={{textAlign: "center", color: "#7a8cc2", marginTop: 20, fontSize: 12}}>* Tính năng chỉnh sửa mã hệ thống chỉ dành cho Admin.</Text>
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>
@@ -293,12 +160,13 @@ export default function AdminVoucherManagement() {
                 </TouchableOpacity>
               ))}
             </View>
-            <TextInput style={s.reasonInput} placeholder="Ghi chú thêm..." value={customReason} onChangeText={setCustomReason} multiline />
-            <TouchableOpacity style={[s.submitBtn, (!selectedUser || !selectedTemplate) && { opacity: 0.5 }]} onPress={handleSendDirect}><Text style={s.submitTxt}>Tạo & Gửi Voucher Cho Khách</Text></TouchableOpacity>
+            <TextInput style={s.reasonInput} placeholder="Ghi chú thêm (Tùy chọn)..." value={customReason} onChangeText={setCustomReason} multiline />
+            <TouchableOpacity style={[s.submitBtn, (!selectedUser || !selectedTemplate) && { opacity: 0.5 }]} onPress={handleSendDirect}>
+              <Text style={s.submitTxt}>Tạo & Gửi Voucher Cho Khách</Text>
+            </TouchableOpacity>
           </View>
-
           <Text style={[s.sectionTitle, { marginLeft: 4, marginTop: 10 }]}>Lịch sử tặng cá nhân</Text>
-          {directVouchers.length === 0 ? <Text style={s.emptyTxt}>Chưa có lịch sử tặng.</Text> : directVouchers.map(v => (
+          {directVouchers.map(v => (
             <View key={v.id} style={s.historyCard}>
               <View style={s.historyHeader}><Text style={s.voucherCode}>{v.code}</Text><View style={[s.usedBadge, { backgroundColor: v.used ? "#fef9c3" : "#dcfce7" }]}><Text style={[s.usedTxt, { color: v.used ? "#d97706" : "#16a34a" }]}>{v.used ? "Đã dùng" : "Chưa dùng"}</Text></View></View>
               <Text style={s.historyGuest}>Tặng: <Text style={{fontWeight: "700", color: "#1f2a58"}}>{v.targetUserName}</Text> ({v.targetUserPhone})</Text>
@@ -307,7 +175,8 @@ export default function AdminVoucherManagement() {
           ))}
         </ScrollView>
       )}
-      <AdminTabBar activeRoute="admin-voucher-management" />
+
+      <StaffTabBar activeRoute="/staff-voucher-management" />
     </View>
   );
 }
@@ -316,7 +185,6 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f7ff" },
   topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4ebff" },
   iconBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
-  addBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, fontSize: 18, fontWeight: "800", color: "#1f2a58", textAlign: "center" },
   tabContainer: { flexDirection: "row", backgroundColor: "#fff", padding: 8, marginHorizontal: 16, marginTop: 16, borderRadius: 12, borderWidth: 1, borderColor: "#e4ebff" },
   tabBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8 },
@@ -324,10 +192,10 @@ const s = StyleSheet.create({
   tabTxt: { fontSize: 14, fontWeight: "600", color: "#7a8cc2" },
   tabTxtActive: { color: "#2856d6", fontWeight: "800" },
   list: { padding: 16, paddingBottom: 100 },
-  emptyTxt: { textAlign: "center", color: "#7a8cc2", marginTop: 20, fontSize: 14 },
+  emptyTxt: { textAlign: "center", color: "#7a8cc2", marginTop: 20 },
   
   sysCard: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: "#e4ebff" },
-  sysCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 },
+  sysCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   sysTitle: { fontSize: 16, fontWeight: "800", color: "#1f2a58", flex: 1, paddingRight: 10 },
   sysBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   sysBadgeTxt: { color: "#fff", fontWeight: "800", fontSize: 13, letterSpacing: 1 },
@@ -338,9 +206,6 @@ const s = StyleSheet.create({
   usageBar: { height: 6, backgroundColor: "#f1f5f9", borderRadius: 3, overflow: "hidden", marginBottom: 6 },
   usageFill: { height: "100%", borderRadius: 3 },
   sysUsage: { fontSize: 11, color: "#94a3b8", fontWeight: "600", textAlign: "right", marginBottom: 12 },
-  actionRow: { flexDirection: "row", gap: 10, borderTopWidth: 1, borderTopColor: "#f0f4ff", paddingTop: 12 },
-  actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#eaf0ff", paddingVertical: 10, borderRadius: 8 },
-  actionTxt: { fontWeight: "700", fontSize: 13 },
 
   formCard: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: "#e4ebff" },
   sectionTitle: { fontSize: 14, fontWeight: "700", color: "#1f2a58", marginBottom: 10 },
@@ -362,7 +227,7 @@ const s = StyleSheet.create({
   historyVal: { color: "#1f2a58", fontWeight: "800", fontSize: 14 },
   historyDate: { color: "#94a8d8", fontSize: 11 },
   
-  modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "flex-end" },
+  userModalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
   sheet: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "80%", overflow: "hidden" },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
@@ -371,14 +236,6 @@ const s = StyleSheet.create({
   userAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
   userName: { fontSize: 14, fontWeight: "700", color: "#1f2a58" },
   userPhone: { fontSize: 12, color: "#7a8cc2", marginTop: 2 },
-  modalBody: { padding: 20, paddingBottom: 40 },
-  label: { fontSize: 13, fontWeight: "700", color: "#1f2a58", marginBottom: 8, marginTop: 12 },
-  typeRow: { flexDirection: "row", gap: 10 },
-  typeBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center", backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "#e2e8f0" },
-  typeActive: { backgroundColor: "#4f7cff", borderColor: "#4f7cff" },
-  typeTxt: { fontSize: 13, fontWeight: "700", color: "#475569" },
-  checkboxRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20, marginBottom: 20 },
-  checkboxTxt: { color: "#1f2a58", fontWeight: "600", fontSize: 14 },
   
   // Custom Alert
   alertOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
