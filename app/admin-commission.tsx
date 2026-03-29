@@ -1,22 +1,13 @@
 /**
  * app/admin-commission.tsx
- * Admin cấu hình tỉ lệ hoa hồng hướng dẫn viên theo danh mục tour
- * Cập nhật giao diện đồng bộ, ẩn Header, fix lỗi Menu Active
+ * Admin cấu hình tỉ lệ hoa hồng hệ thống - ĐÃ NÂNG CẤP DỮ LIỆU THẬT
  */
 import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  Modal,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface CommissionRule {
@@ -24,20 +15,22 @@ interface CommissionRule {
 }
 
 interface CalculatedRule extends CommissionRule {
-  totalEarned: number; bookingCount: number; totalRevenue: number; guideCount: number;
+  totalEarned: number; bookingCount: number; totalRevenue: number;
 }
 
+// Cấu hình mặc định nếu Admin chưa từng cài đặt
 const SEED_RULES: CommissionRule[] = [
-  { id: "c1", category: "Biển đảo", icon: "water-outline", rate: 15, minRate: 10, maxRate: 25, color: "#3b82f6" },
-  { id: "c2", category: "Vùng núi", icon: "image-outline", rate: 12, minRate: 8, maxRate: 20, color: "#10b981" },
-  { id: "c3", category: "Văn hóa", icon: "library-outline", rate: 10, minRate: 5, maxRate: 15, color: "#f59e0b" },
-  { id: "c4", category: "Sinh thái", icon: "leaf-outline", rate: 14, minRate: 10, maxRate: 20, color: "#84cc16" },
-  { id: "c5", category: "Mạo hiểm", icon: "flame-outline", rate: 20, minRate: 15, maxRate: 30, color: "#ef4444" },
+  { id: "c1", category: "Biển đảo", icon: "water-outline", rate: 15, minRate: 5, maxRate: 30, color: "#3b82f6" },
+  { id: "c2", category: "Vùng núi", icon: "image-outline", rate: 12, minRate: 5, maxRate: 30, color: "#10b981" },
+  { id: "c3", category: "Văn hóa", icon: "library-outline", rate: 10, minRate: 5, maxRate: 30, color: "#f59e0b" },
+  { id: "c4", category: "Sinh thái", icon: "leaf-outline", rate: 14, minRate: 5, maxRate: 30, color: "#84cc16" },
+  { id: "c5", category: "Mạo hiểm", icon: "flame-outline", rate: 20, minRate: 5, maxRate: 30, color: "#ef4444" },
 ];
 
 export default function AdminCommissionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  
   const [calculatedRules, setCalculatedRules] = useState<CalculatedRule[]>([]);
   const [totalSystemCommission, setTotalSystemCommission] = useState(0);
 
@@ -51,34 +44,51 @@ export default function AdminCommissionScreen() {
     }, [])
   );
 
+  // --- HÀM TÍNH TOÁN DỮ LIỆU THẬT TỪ CÁC ĐƠN ĐÃ HOÀN THÀNH ---
   const loadAndCalculate = async () => {
     try {
+      // 1. Lấy danh sách tỉ lệ hoa hồng hiện tại
       const rawRules = await AsyncStorage.getItem("@admin_commissions");
       let activeRules: CommissionRule[] = rawRules ? JSON.parse(rawRules) : SEED_RULES;
       if (!rawRules) await AsyncStorage.setItem("@admin_commissions", JSON.stringify(SEED_RULES));
 
-      const rawTours = await AsyncStorage.getItem("@app_tours");
-      const tours = rawTours ? JSON.parse(rawTours) : [];
+      // 2. Lấy dữ liệu đơn đặt tour THẬT của khách hàng
+      const rawBookings = await AsyncStorage.getItem("@guest_bookings");
+      const bookings = rawBookings ? JSON.parse(rawBookings) : [];
+      
+      // Chỉ tính doanh thu từ các tour ĐÃ HOÀN THÀNH
+      const completedBookings = bookings.filter((b: any) => b.status === 'completed');
 
       let totalComm = 0;
+      
+      // 3. Khớp dữ liệu doanh thu vào từng danh mục hoa hồng
       const processed: CalculatedRule[] = activeRules.map((rule) => {
-        const categoryTours = tours.filter((t: any) => t.category === rule.category);
-        const revenue = categoryTours.reduce((sum: number, t: any) => sum + ((t.priceRaw || 0) * 10), 0);
+        const categoryBookings = completedBookings.filter((b: any) => b.category === rule.category);
+        
+        // Tổng tiền thu được từ danh mục này
+        const revenue = categoryBookings.reduce((sum: number, b: any) => sum + (b.totalAmount || 0), 0);
+        
+        // Hoa hồng Admin được hưởng (dựa trên tỉ lệ % của danh mục)
         const earned = (revenue * rule.rate) / 100;
+        
         totalComm += earned;
 
         return {
-          ...rule, totalRevenue: revenue, totalEarned: earned,
-          bookingCount: categoryTours.length * 10,
-          guideCount: categoryTours.reduce((acc: number, t: any) => acc + (t.assignedGuideIds?.length || 0), 0),
+          ...rule, 
+          totalRevenue: revenue, 
+          totalEarned: earned,
+          bookingCount: categoryBookings.length,
         };
       });
 
       setCalculatedRules(processed);
       setTotalSystemCommission(totalComm);
-    } catch (e) {}
+    } catch (e) {
+      console.log("Lỗi tải dữ liệu hoa hồng:", e);
+    }
   };
 
+  // --- HÀM TĂNG/GIẢM TỈ LỆ HOA HỒNG (Lưu ngay lập tức) ---
   const adjustRate = async (id: string, delta: number) => {
     try {
       const rawRules = await AsyncStorage.getItem("@admin_commissions");
@@ -88,17 +98,28 @@ export default function AdminCommissionScreen() {
       if (index === -1) return;
 
       const newRate = rules[index].rate + delta;
+      
+      // Kiểm tra giới hạn Min/Max
       if (newRate >= rules[index].minRate && newRate <= rules[index].maxRate) {
         rules[index].rate = newRate;
         await AsyncStorage.setItem("@admin_commissions", JSON.stringify(rules));
-        loadAndCalculate();
+        
+        // Cập nhật lại UI và tính toán lại doanh thu dựa trên tỉ lệ mới
+        loadAndCalculate(); 
       } else {
-        setConfirmPopup({ visible: true, type: "error", title: "Giới hạn", message: `Tỷ lệ hoa hồng cho danh mục này chỉ được phép từ ${rules[index].minRate}% đến ${rules[index].maxRate}%.` });
+        setConfirmPopup({ 
+          visible: true, 
+          type: "error", 
+          title: "Đạt giới hạn", 
+          message: `Tỉ lệ hoa hồng cho "${rules[index].category}" chỉ được phép từ ${rules[index].minRate}% đến ${rules[index].maxRate}%.` 
+        });
       }
-    } catch (error) {}
+    } catch (error) {
+      console.log(error);
+    }
   };
 
-  const formatVND = (val: number) => val.toLocaleString("vi-VN") + "đ";
+  const formatVND = (val: number) => (val || 0).toLocaleString("vi-VN") + "đ";
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -115,15 +136,15 @@ export default function AdminCommissionScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Tổng hoa hồng hệ thống (Ước tính)</Text>
-          <Text style={styles.summaryValue}>{formatVND(totalSystemCommission > 0 ? totalSystemCommission : 24500000)}</Text>
+          <Text style={styles.summaryLabel}>Tổng hoa hồng thực tế thu được</Text>
+          <Text style={styles.summaryValue}>{formatVND(totalSystemCommission)}</Text>
           <View style={styles.summaryMetaRow}>
-            <Ionicons name="trending-up" size={16} color="#10b981" />
-            <Text style={styles.summaryMeta}>Tăng 12% so với tháng trước</Text>
+            <Ionicons name="checkmark-circle" size={16} color="#10b981" />
+            <Text style={styles.summaryMeta}>Tự động tính từ các tour đã hoàn thành</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Cấu hình theo danh mục</Text>
+        <Text style={styles.sectionTitle}>Quản lý tỉ lệ theo danh mục</Text>
         
         {calculatedRules.map((rule) => (
           <View key={rule.id} style={styles.ruleCard}>
@@ -133,7 +154,7 @@ export default function AdminCommissionScreen() {
               </View>
               <View style={styles.ruleInfo}>
                 <Text style={styles.ruleCategory}>{rule.category}</Text>
-                <Text style={styles.ruleSub}>{rule.guideCount} HDV • {rule.bookingCount} Bookings</Text>
+                <Text style={styles.ruleSub}>Đã bán: {rule.bookingCount} tour</Text>
               </View>
               
               <View style={styles.rateControl}>
@@ -150,19 +171,19 @@ export default function AdminCommissionScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statBox}>
                 <Text style={styles.statLabel}>Doanh thu Tour</Text>
-                <Text style={styles.statValueRaw}>{formatVND(rule.totalRevenue > 0 ? rule.totalRevenue : 85000000)}</Text>
+                <Text style={styles.statValueRaw}>{formatVND(rule.totalRevenue)}</Text>
               </View>
               <View style={styles.divider} />
               <View style={styles.statBox}>
-                <Text style={styles.statLabel}>Hoa hồng thu được</Text>
-                <Text style={styles.statValueEarned}>{formatVND(rule.totalEarned > 0 ? rule.totalEarned : 8500000)}</Text>
+                <Text style={styles.statLabel}>Hoa hồng Admin nhận</Text>
+                <Text style={styles.statValueEarned}>{formatVND(rule.totalEarned)}</Text>
               </View>
             </View>
           </View>
         ))}
       </ScrollView>
 
-      {/* Custom Confirm Popup */}
+      {/* Popup thông báo lỗi/thành công */}
       <Modal visible={confirmPopup.visible} transparent animationType="fade">
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmBox}>
@@ -178,7 +199,6 @@ export default function AdminCommissionScreen() {
         </View>
       </Modal>
 
-      {/* Đã sửa tên file route để bắt đúng màu active */}
       <AdminTabBar role="admin" activeRoute="admin-commission" />
     </View>
   );
@@ -193,31 +213,31 @@ const styles = StyleSheet.create({
   
   summaryCard: { backgroundColor: "#1f2a58", borderRadius: 20, padding: 24, marginBottom: 24, elevation: 8, shadowColor: "#1f2a58", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16 },
   summaryLabel: { color: "#94a8d8", fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  summaryValue: { color: "#fff", fontSize: 32, fontWeight: "900", marginBottom: 12 },
+  summaryValue: { color: "#10b981", fontSize: 32, fontWeight: "900", marginBottom: 12 },
   summaryMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.1)", alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  summaryMeta: { color: "#10b981", fontSize: 12, fontWeight: "700" },
+  summaryMeta: { color: "#fff", fontSize: 12, fontWeight: "600" },
   
   sectionTitle: { fontSize: 16, fontWeight: "800", color: "#1f2a58", marginBottom: 14, marginLeft: 4 },
-  ruleCard: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: "#e4ebff", elevation: 2, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10 },
+  ruleCard: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: "#e4ebff", elevation: 2 },
   ruleHeader: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
   iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   ruleInfo: { flex: 1, marginLeft: 12 },
   ruleCategory: { fontSize: 16, fontWeight: "800", color: "#1f2a58", marginBottom: 4 },
-  ruleSub: { fontSize: 12, color: "#7a8cc2", fontWeight: "500" },
+  ruleSub: { fontSize: 12, color: "#7a8cc2", fontWeight: "600" },
   
   rateControl: { flexDirection: "row", alignItems: "center", backgroundColor: "#f8fafc", borderRadius: 10, borderWidth: 1, borderColor: "#e4ebff", padding: 4 },
-  controlBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
-  rateValue: { width: 44, textAlign: "center", fontSize: 15, fontWeight: "800", color: "#4f7cff" },
+  controlBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 1 },
+  rateValue: { width: 44, textAlign: "center", fontSize: 16, fontWeight: "900", color: "#4f7cff" },
   
-  statsRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#f8fafc", borderRadius: 12, padding: 12 },
+  statsRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#f8fafc", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "#f1f5f9" },
   statBox: { flex: 1 },
   statLabel: { fontSize: 11, color: "#7a8cc2", fontWeight: "600", marginBottom: 4 },
-  statValueRaw: { fontSize: 14, color: "#1f2a58", fontWeight: "700" },
-  statValueEarned: { fontSize: 15, color: "#10b981", fontWeight: "800" },
+  statValueRaw: { fontSize: 14, color: "#1f2a58", fontWeight: "800" },
+  statValueEarned: { fontSize: 15, color: "#10b981", fontWeight: "900" },
   divider: { width: 1, height: 30, backgroundColor: "#e2e8f0", marginHorizontal: 12 },
 
   confirmOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
-  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20 },
+  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10 },
   confirmIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },
   confirmTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58", marginBottom: 8, textAlign: "center" },
   confirmMessage: { fontSize: 14, color: "#7a8cc2", textAlign: "center", lineHeight: 22, marginBottom: 24 },
