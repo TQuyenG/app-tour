@@ -3,7 +3,7 @@
  * Trang Hoàn tất & Đánh giá Tour - Đã FIX: Responsive Scale, Thay Emoji bằng Icon
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@/constants/storage-helper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';

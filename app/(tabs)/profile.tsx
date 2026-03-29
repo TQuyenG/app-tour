@@ -1,11 +1,9 @@
 /**
  * app/(tabs)/profile.tsx  –  Profile Guest
- * ĐÃ CẬP NHẬT: 
- * 1. Bỏ code cứng 1200 điểm (Đưa về 0).
- * 2. Thêm tính năng Điểm danh hàng ngày (Daily Check-in) nhận 20 điểm.
+ * ĐÃ FIX: Lấy danh tính từ Session Đăng Nhập (@app_current_user), loại bỏ triệt để Mặc định "Nguyễn An".
  */
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@/constants/storage-helper';
 import { useFocusEffect, useRouter, Stack } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -21,11 +19,11 @@ interface GuestProfile {
   voucher: string; avatarColor: string; avatarUrl?: string;
 }
 
-const DEFAULT_PROFILE: GuestProfile = {
-  name: 'Nguyễn An', email: 'guest1@gmail.com', phone: '0901 234 567',
-  dob: '01/01/1995', address: 'TP. Hồ Chí Minh', 
-  loyaltyPoints: 0, // ĐÃ FIX BUG: Chuyển code cứng 1200 về 0
-  loyaltyTier: 'Đồng', voucher: 'SUMMER2026', avatarColor: '#4f7cff', avatarUrl: '',
+// BỘ KHUNG RỖNG - Đợi được lấp đầy bởi dữ liệu Session
+const EMPTY_PROFILE: GuestProfile = {
+  name: 'Khách hàng', email: '', phone: '',
+  dob: 'Chưa cập nhật', address: 'Chưa cập nhật', 
+  loyaltyPoints: 0, loyaltyTier: 'Đồng', voucher: '', avatarColor: '#4f7cff', avatarUrl: '',
 };
 
 const TIER_CONFIG = [
@@ -42,9 +40,9 @@ export default function ProfileScreen() {
   const scale = Math.min(width / 375, 1.2);
   const s = useMemo(() => getStyles(scale), [scale]);
 
-  const [profile, setProfile] = useState<GuestProfile>(DEFAULT_PROFILE);
+  const [profile, setProfile] = useState<GuestProfile>(EMPTY_PROFILE);
   const [modalVisible, setModalVisible] = useState(false);
-  const [form, setForm] = useState<GuestProfile>(DEFAULT_PROFILE);
+  const [form, setForm] = useState<GuestProfile>(EMPTY_PROFILE);
   const [saving, setSaving] = useState(false);
   
   const [isGuideAlso, setIsGuideAlso] = useState(false);
@@ -61,27 +59,36 @@ export default function ProfileScreen() {
     useCallback(() => {
       const loadData = async () => {
         try {
-          let currentEmail = '';
-          const rawProfile = await AsyncStorage.getItem('@app_profile');
-          if (rawProfile) {
-            const p = { ...DEFAULT_PROFILE, ...JSON.parse(rawProfile) };
-            const currentTier = TIER_CONFIG.slice().reverse().find(t => p.loyaltyPoints >= t.minPoints)?.name || "Đồng";
-            p.loyaltyTier = currentTier;
-            setProfile(p); setForm(p);
-            currentEmail = p.email;
-          }
-          
-          let hasGuideRole = false;
-          let accId = '';
+          // 1. Lấy dữ liệu danh tính Gốc từ Phiên đăng nhập
           const rawUser = await AsyncStorage.getItem('@app_current_user');
-          if (rawUser) {
-            const u = JSON.parse(rawUser);
-            accId = u.accountId;
-            if (u.roles && u.roles.includes('guide')) {
-              hasGuideRole = true;
-              setIsGuideAlso(true);
-            }
-          }
+          const sessionUser = rawUser ? JSON.parse(rawUser) : null;
+
+          // 2. Lấy các dữ liệu phụ trợ từ Profile (Ngày sinh, điểm Loyalty, v.v...)
+          const rawProfile = await AsyncStorage.getItem('@app_profile');
+          const savedProfile = rawProfile ? JSON.parse(rawProfile) : {};
+          
+          // 3. Hợp nhất: Session luôn là Vua (Ghi đè mọi thứ khác)
+          const p = {
+            ...EMPTY_PROFILE,
+            ...savedProfile,
+            name: sessionUser?.name || savedProfile.name || EMPTY_PROFILE.name,
+            email: sessionUser?.email || savedProfile.email || EMPTY_PROFILE.email,
+            phone: sessionUser?.phone || savedProfile.phone || EMPTY_PROFILE.phone,
+            avatarColor: sessionUser?.avatarColor || savedProfile.avatarColor || EMPTY_PROFILE.avatarColor
+          };
+
+          const currentTier = TIER_CONFIG.slice().reverse().find(t => p.loyaltyPoints >= t.minPoints)?.name || "Đồng";
+          p.loyaltyTier = currentTier;
+          
+          setProfile(p); 
+          setForm(p);
+          
+          const currentEmail = p.email;
+          const accId = sessionUser?.accountId || '';
+          
+          // Kiểm tra Role Hướng dẫn viên
+          let hasGuideRole = sessionUser?.roles?.includes('guide') || false;
+          setIsGuideAlso(hasGuideRole);
 
           if (!hasGuideRole) {
             const rawReqs = await AsyncStorage.getItem('@admin_guide_requests');
@@ -104,7 +111,6 @@ export default function ProfileScreen() {
     }, [])
   );
 
-  // --- TÍNH NĂNG ĐIỂM DANH (DAILY CHECK-IN) ---
   const handleCheckIn = async () => {
     try {
       const today = new Date().toLocaleDateString('vi-VN');
@@ -115,7 +121,6 @@ export default function ProfileScreen() {
         return;
       }
 
-      // Cộng 20 điểm
       const newPoints = profile.loyaltyPoints + 20;
       const currentTier = TIER_CONFIG.slice().reverse().find(t => newPoints >= t.minPoints)?.name || "Đồng";
       const updatedProfile = { ...profile, loyaltyPoints: newPoints, loyaltyTier: currentTier };
@@ -124,7 +129,6 @@ export default function ProfileScreen() {
       await AsyncStorage.setItem('@guest_last_checkin', today);
       setProfile(updatedProfile);
 
-      // Ghi lịch sử điểm
       const hRaw = await AsyncStorage.getItem("@guest_loyalty_history");
       const history = hRaw ? JSON.parse(hRaw) : [];
       history.unshift({
@@ -142,6 +146,16 @@ export default function ProfileScreen() {
     if (!form.name.trim()) { Alert.alert('Lỗi', 'Vui lòng điền họ tên.'); return; }
     setSaving(true);
     await AsyncStorage.setItem('@app_profile', JSON.stringify(form));
+    
+    // Cập nhật ngược lại Session để giữ đồng bộ Source of Truth
+    const rawUser = await AsyncStorage.getItem('@app_current_user');
+    if (rawUser) {
+      const sessionUser = JSON.parse(rawUser);
+      sessionUser.name = form.name;
+      sessionUser.phone = form.phone;
+      await AsyncStorage.setItem('@app_current_user', JSON.stringify(sessionUser));
+    }
+
     setProfile(form);
     setSaving(false);
     setModalVisible(false);

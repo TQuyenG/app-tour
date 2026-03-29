@@ -1,8 +1,9 @@
 /**
  * app/login.tsx
  * Trang Đăng nhập & Quên mật khẩu - Đã thay thế Alert bằng Custom Modal Popup
- * ĐÃ FIX LỖI: Nhấn giữ Logo mở Dev Mode (Sử dụng pointerEvents="box-only")
+ * ĐÃ TÍCH HỢP LOGIC LOG-IN THẬT TỪ app-accounts.ts
  */
+import { loginAccount } from "@/constants/app-accounts"; // Tích hợp logic thật
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter } from "expo-router";
@@ -64,6 +65,7 @@ export default function LoginScreen() {
     setAlertPopup({ ...alertPopup, visible: false });
   };
 
+  // LOGIC ĐĂNG NHẬP ĐÃ FIX LỖI TYPESCRIPT
   const handleLogin = async () => {
     if (!email.trim() || !password) {
       showAlert("error", "Lỗi nhập liệu", "Vui lòng nhập địa chỉ email và mật khẩu.");
@@ -71,36 +73,26 @@ export default function LoginScreen() {
     }
     
     setLoading(true);
-    
-    try {
-      let role = "guest"; 
-      const emailLower = email.trim().toLowerCase();
+    const res = await loginAccount(email.trim(), password);
+    setLoading(false);
 
-      if (emailLower.includes("admin")) {
-        role = "admin";
-      } else if (emailLower.includes("guide")) {
-        role = "guide";
-      } else if (emailLower.includes("staff")) {
-        role = "staff";
-      }
+    // FIX LỖI TYPE: Chỉ cần check res.ok, TypeScript sẽ tự hiểu các property đi kèm
+    if (res.ok) {
+      // Lúc này TS biết chắc chắn res có chứa 'user'
+      await AsyncStorage.setItem("@current_user_role", res.user.activeRole);
 
-      await new Promise(resolve => setTimeout(resolve, 800));
-      await AsyncStorage.setItem("@current_user_role", role);
-
-      if (role === "admin") {
+      if (res.user.activeRole === "admin") {
         router.replace("/admin-home");
-      } else if (role === "guide") {
+      } else if (res.user.activeRole === "guide") {
         router.replace("/guide-home");
-      } else if (role === "staff") {
+      } else if (res.user.activeRole === "staff") {
         router.replace("/staff-home" as any);
       } else {
         router.replace("/");
       }
-
-    } catch (error) {
-      showAlert("error", "Đăng nhập thất bại", "Đã có lỗi xảy ra trong quá trình đăng nhập.");
-    } finally {
-      setLoading(false);
+    } else {
+      // Rơi vào else, TS biết chắc chắn res có chứa 'error'
+      showAlert("error", "Đăng nhập thất bại", res.error);
     }
   };
 
@@ -175,7 +167,6 @@ export default function LoginScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           
-          {/* ĐÃ FIX: Chuyển TouchableWithoutFeedback thành TouchableOpacity + pointerEvents */}
           <TouchableOpacity 
             activeOpacity={1} 
             onLongPress={() => setDevMode(!devMode)} 

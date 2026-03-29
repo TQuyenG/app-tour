@@ -1,7 +1,7 @@
 /**
  * app/(tabs)/bookings.tsx
  * Lịch sử Đặt Tour của Guest (Phiên bản Hoàn Chỉnh 100%)
- * Gộp chung: Nhắc nhở/Đếm ngược + Hủy/Dời Lịch + Viết Đánh Giá
+ * ĐÃ FIX LỖI BẢO MẬT: Chỉ hiển thị đơn của User hiện tại, không làm mất đơn của người khác khi Hủy/Dời lịch.
  */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -39,7 +39,25 @@ export default function GuestBookingsScreen() {
   const [ackKeys, setAckKeys] = useState<string[]>([]);
 
   useFocusEffect(useCallback(() => {
-    AsyncStorage.getItem('@guest_bookings').then(raw => { if (raw) setBookings(JSON.parse(raw)); });
+    const loadPrivateBookings = async () => {
+      // 1. Lấy thông tin User đang đăng nhập
+      const rawUser = await AsyncStorage.getItem('@app_current_user');
+      const currentUser = rawUser ? JSON.parse(rawUser) : null;
+
+      // 2. Lấy kho đơn hàng chung và LỌC
+      const rawBookings = await AsyncStorage.getItem('@guest_bookings');
+      if (rawBookings && currentUser) {
+        const allBookings = JSON.parse(rawBookings);
+        // Lọc ra các đơn hàng thuộc về accountId hoặc email của User hiện tại
+        const myBookings = allBookings.filter((b: any) => 
+          b.accountId === currentUser.accountId || 
+          b.customerEmail === currentUser.email
+        );
+        setBookings(myBookings);
+      }
+    };
+
+    loadPrivateBookings();
     AsyncStorage.getItem('@app_tours').then(raw => { if (raw) setTours(JSON.parse(raw)); });
     AsyncStorage.getItem('@app_reviews').then(raw => { if (raw) setReviews(JSON.parse(raw)); });
     AsyncStorage.getItem('@guest_acked_reminders').then(raw => { if (raw) setAckKeys(JSON.parse(raw)); });
@@ -106,26 +124,52 @@ export default function GuestBookingsScreen() {
     return { text: `Khẩn trương: Còn ${m} phút ${s} giây`, color: "#ef4444", icon: "flame" };
   };
 
+  // FIX LỖI BẢO MẬT: Cập nhật an toàn trên Kho dữ liệu chung
   const executeCancel = async () => {
     if (!cancelModal) return;
-    const updated = bookings.map(b => b.id === cancelModal.id ? { ...b, status: 'cancelled' } : b);
-    await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updated));
-    setBookings(updated);
+    
+    // 1. Lấy toàn bộ kho dữ liệu gốc (bao gồm đơn của người khác)
+    const rawAll = await AsyncStorage.getItem('@guest_bookings');
+    const allBookings = rawAll ? JSON.parse(rawAll) : [];
+    
+    // 2. Chỉnh sửa riêng cái đơn cần hủy
+    const updatedAll = allBookings.map((b: any) => b.id === cancelModal.id ? { ...b, status: 'cancelled' } : b);
+    
+    // 3. Lưu trả lại kho chung
+    await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updatedAll));
+    
+    // 4. Cập nhật lại màn hình của khách hiện tại
+    setBookings(bookings.map(b => b.id === cancelModal.id ? { ...b, status: 'cancelled' } : b));
+    
     setCancelModal(null);
     Alert.alert('Thành công', 'Đã hủy đơn đặt tour.');
   };
 
+  // FIX LỖI BẢO MẬT: Cập nhật an toàn trên Kho dữ liệu chung
   const executeReschedule = async (newSch: any) => {
     if (!rescheduleModal) return;
-    const updated = bookings.map(b => b.id === rescheduleModal.id ? { 
+
+    const rawAll = await AsyncStorage.getItem('@guest_bookings');
+    const allBookings = rawAll ? JSON.parse(rawAll) : [];
+    
+    const updatedAll = allBookings.map((b: any) => b.id === rescheduleModal.id ? { 
       ...b, 
       scheduleId: newSch.id, 
       startTime: newSch.startTime, 
       endTime: newSch.endTime,
       date: new Date(newSch.startTime).toLocaleDateString('vi-VN')
     } : b);
-    await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updated));
-    setBookings(updated);
+
+    await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updatedAll));
+    
+    setBookings(bookings.map(b => b.id === rescheduleModal.id ? { 
+      ...b, 
+      scheduleId: newSch.id, 
+      startTime: newSch.startTime, 
+      endTime: newSch.endTime,
+      date: new Date(newSch.startTime).toLocaleDateString('vi-VN')
+    } : b));
+
     setRescheduleModal(null);
     Alert.alert('Thành công', 'Đã dời ngày khởi hành.');
   };
@@ -162,7 +206,7 @@ export default function GuestBookingsScreen() {
         await AsyncStorage.setItem('@guide_wallet', JSON.stringify(wallet));
       }
 
-      // ================= ĐỌC ĐIỂM TỪ TOUR VÀ CỘNG ĐIỂM REVIEW =================
+      // Đọc điểm từ Tour và cộng vào Profile cá nhân
       const tRaw = await AsyncStorage.getItem('@app_tours');
       let reviewPoints = 50; 
       if (tRaw) {
@@ -183,7 +227,6 @@ export default function GuestBookingsScreen() {
         desc: `Đánh giá Tour: ${reviewModal?.tourName || ''}`, date: new Date().toISOString()
       });
       await AsyncStorage.setItem("@guest_loyalty_history", JSON.stringify(history));
-      // =====================================================================
 
       setReviewModal(null);
       Alert.alert('Thành công', `Cảm ơn bạn đã gửi đánh giá! Bạn được cộng +${reviewPoints} điểm thưởng.`);

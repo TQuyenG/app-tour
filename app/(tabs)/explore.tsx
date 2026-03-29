@@ -4,7 +4,7 @@
  * ĐÃ CẬP NHẬT: Search chính xác từng từ (AND), Cross-match logic, Lọc HDV Rảnh.
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@/constants/storage-helper';
 import { useFocusEffect, useRouter, Stack } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { 

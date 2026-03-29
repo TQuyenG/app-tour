@@ -1,6 +1,7 @@
 /**
  * app/admin-guide-management.tsx
- * Quản lý HDV - Tích hợp VNeID, CCCD, Danh sách Tour đảm nhận và Navigation liên kết
+ * Quản lý HDV - ĐÃ FIX LỖI ĐỒNG BỘ DỮ LIỆU (SKILLS ARRAY) VỚI DATA-STORE
+ * Tích hợp VNeID, CCCD, Danh sách Tour đảm nhận và Navigation liên kết
  */
 import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,20 +29,13 @@ type GuideStatus = "active" | "busy" | "inactive";
 
 interface Guide {
   id: string; name: string; location: string; experience: string;
-  skills: string; rating: number; tours: number; phone: string; email: string;
+  skills: string[] | string; // FIX: Chấp nhận cả array (từ DB) và chuỗi (khi đang gõ)
+  rating: number; tours: number; phone: string; email: string;
   status: GuideStatus; note: string;
-  // Các trường bảo mật & Liên kết Tour mới thêm
   vneidVerified: boolean;
   cccd: string;
   assignedTours: { id: string; name: string }[];
 }
-
-// Dữ liệu mẫu đồng bộ từ travel-data.ts
-const SEED_GUIDES: Guide[] = [
-  { id: "g1", name: "Trần Minh Khoa", location: "Đà Lạt", experience: "3 năm", skills: "Chụp ảnh, Ẩm thực", rating: 4.9, tours: 134, phone: "0987 654 321", email: "khoa.tm@localmate.vn", status: "active", note: "", vneidVerified: true, cccd: "079090123***", assignedTours: [{ id: "t1", name: "Đà Lạt 3N2Đ - Săn mây & Chill" }] },
-  { id: "g2", name: "Nguyễn Thu Hà", location: "Sapa", experience: "4 năm", skills: "Trekking, Văn hóa bản địa", rating: 4.8, tours: 92, phone: "0923 456 789", email: "ha.nt@localmate.vn", status: "busy", note: "Đang dẫn đoàn", vneidVerified: true, cccd: "001192456***", assignedTours: [{ id: "t4", name: "Sapa 3N2Đ - Mùa lúa chín" }] },
-  { id: "g3", name: "Lê Quang Dũng", location: "Hội An", experience: "5 năm", skills: "Lịch sử, Văn hóa", rating: 4.8, tours: 201, phone: "0901 234 567", email: "dung.lq@localmate.vn", status: "active", note: "", vneidVerified: false, cccd: "048085789***", assignedTours: [{ id: "t5", name: "Hội An 2N1Đ - Phố cổ & Đèn lồng" }] },
-];
 
 export default function AdminGuideManagementScreen() {
   const router = useRouter();
@@ -63,17 +57,28 @@ export default function AdminGuideManagementScreen() {
   const loadGuides = async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) setGuides(JSON.parse(raw));
-      else { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_GUIDES)); setGuides(SEED_GUIDES); }
+      if (raw) {
+        setGuides(JSON.parse(raw));
+      } else {
+        // Nếu chưa có data thì mượn kho trung tâm (nếu có thể) hoặc mảng rỗng
+        setGuides([]);
+      }
     } catch (e) { setGuides([]); }
   };
 
   const openModal = (guide?: Guide) => {
-    if (guide) setEditingGuide(guide);
-    else setEditingGuide({
-      id: `guide-${Date.now()}`, name: "", location: "", experience: "1 năm", skills: "",
-      rating: 5.0, tours: 0, phone: "", email: "", status: "active", note: "", vneidVerified: false, cccd: "", assignedTours: []
-    });
+    if (guide) {
+      setEditingGuide({
+        ...guide,
+        // FIX: Đưa Array về chuỗi (cách nhau bởi dấu phẩy) để hiển thị trong TextInput dễ sửa
+        skills: Array.isArray(guide.skills) ? guide.skills.join(", ") : (guide.skills || "")
+      });
+    } else {
+      setEditingGuide({
+        id: `g${Date.now()}`, name: "", location: "", experience: "", skills: "",
+        rating: 5.0, tours: 0, phone: "", email: "", status: "active", note: "", vneidVerified: false, cccd: "", assignedTours: []
+      });
+    }
     setModalVisible(true);
   };
 
@@ -83,10 +88,18 @@ export default function AdminGuideManagementScreen() {
       return;
     }
     try {
+      // BƯỚC CHUẨN HÓA: Ép skills về dạng Array ['Kỹ năng 1', 'Kỹ năng 2'] để chuẩn hóa với hệ thống App
+      const normalizedGuide = {
+        ...editingGuide,
+        skills: typeof editingGuide.skills === 'string' 
+          ? editingGuide.skills.split(',').map(s => s.trim()).filter(Boolean) 
+          : editingGuide.skills
+      };
+
       let updated = [...guides];
       const isNew = !guides.find(g => g.id === editingGuide.id);
-      if (isNew) updated.unshift(editingGuide as Guide);
-      else updated = updated.map((g) => (g.id === editingGuide.id ? (editingGuide as Guide) : g));
+      if (isNew) updated.unshift(normalizedGuide as Guide);
+      else updated = updated.map((g) => (g.id === editingGuide.id ? (normalizedGuide as Guide) : g));
       
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       setGuides(updated);
@@ -108,7 +121,6 @@ export default function AdminGuideManagementScreen() {
     setConfirmPopup({ visible: true, type: "success", title: "Đã xóa", message: "Đã xóa Hướng dẫn viên thành công." });
   };
 
-  // Hàm chuyển hướng sang trang Tour và bật Modal
   const navigateToTour = (tourId: string) => {
     setModalVisible(false);
     setTimeout(() => {
@@ -163,6 +175,7 @@ export default function AdminGuideManagementScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={<Text style={{textAlign: 'center', color: '#94a8d8', marginTop: 40}}>Chưa có dữ liệu HDV.</Text>}
         renderItem={({ item: guide }) => (
           <View style={styles.card}>
             <TouchableOpacity onPress={() => openModal(guide)} activeOpacity={0.7}>
@@ -172,7 +185,7 @@ export default function AdminGuideManagementScreen() {
                 </View>
                 <View style={styles.info}>
                   <Text style={styles.name}>{guide.name}</Text>
-                  <Text style={styles.sub}>{guide.phone} • {guide.location}</Text>
+                  <Text style={styles.sub}>{guide.phone || "---"} • {guide.location || "---"}</Text>
                 </View>
                 <View style={[styles.statusBadge, guide.status === "active" ? { backgroundColor: "#eaf0ff" } : guide.status === "busy" ? { backgroundColor: "#fef3c7" } : { backgroundColor: "#f1f5f9" }]}>
                   <Text style={[styles.statusBadgeTxt, guide.status === "active" ? { color: "#4f7cff" } : guide.status === "busy" ? { color: "#d97706" } : { color: "#64748b" }]}>
@@ -181,7 +194,7 @@ export default function AdminGuideManagementScreen() {
                 </View>
               </View>
 
-              {/* VNeID Badge Mới */}
+              {/* VNeID Badge */}
               <View style={styles.securityRow}>
                 {guide.vneidVerified ? (
                   <View style={styles.vneidBadge}><Ionicons name="checkmark-circle" size={14} color="#10b981" /><Text style={styles.vneidTxt}>Đã xác thực VNeID</Text></View>
@@ -194,11 +207,14 @@ export default function AdminGuideManagementScreen() {
               <View style={styles.cardBottom}>
                 <View style={styles.metaCol}>
                   <Text style={styles.metaLabel}>Kinh nghiệm</Text>
-                  <Text style={styles.metaValue}>{guide.experience}</Text>
+                  <Text style={styles.metaValue}>{guide.experience || "---"}</Text>
                 </View>
                 <View style={styles.metaCol}>
                   <Text style={styles.metaLabel}>Kỹ năng nổi bật</Text>
-                  <Text style={styles.metaValue} numberOfLines={1}>{guide.skills}</Text>
+                  <Text style={styles.metaValue} numberOfLines={1}>
+                    {/* Xử lý an toàn: Nếu là mảng thì join, nếu là chuỗi thì in ra */}
+                    {Array.isArray(guide.skills) ? guide.skills.join(", ") : (guide.skills || "---")}
+                  </Text>
                 </View>
               </View>
             </TouchableOpacity>
@@ -220,7 +236,7 @@ export default function AdminGuideManagementScreen() {
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{(editingGuide.id||"").startsWith("guide-") && !guides.find(g=>g.id===editingGuide.id) ? "Thêm HDV Mới" : "Hồ sơ HDV"}</Text>
+              <Text style={styles.modalTitle}>{(editingGuide.id||"").startsWith("g") && !guides.find(g=>g.id===editingGuide.id) ? "Thêm HDV Mới" : "Hồ sơ HDV"}</Text>
               <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}><Ionicons name="close" size={24} color="#1f2a58" /></TouchableOpacity>
             </View>
             
@@ -231,13 +247,30 @@ export default function AdminGuideManagementScreen() {
               <View style={styles.rowGrid}>
                 <View style={styles.col}>
                   <Text style={styles.inputLabel}>Số điện thoại <Text style={{ color: "#ef4444" }}>*</Text></Text>
-                  <TextInput style={styles.input} keyboardType="phone-pad" value={editingGuide.phone} onChangeText={(t) => setEditingGuide(prev => ({...prev, phone: t}))} />
+                  <TextInput style={styles.input} keyboardType="phone-pad" value={editingGuide.phone} onChangeText={(t) => setEditingGuide(prev => ({...prev, phone: t}))} placeholder="090..." />
                 </View>
                 <View style={styles.col}>
                   <Text style={styles.inputLabel}>CCCD / CMND</Text>
                   <TextInput style={styles.input} value={editingGuide.cccd} onChangeText={(t) => setEditingGuide(prev => ({...prev, cccd: t}))} placeholder="0790..." />
                 </View>
               </View>
+
+              <View style={styles.rowGrid}>
+                <View style={styles.col}>
+                  <Text style={styles.inputLabel}>Kinh nghiệm</Text>
+                  <TextInput style={styles.input} value={editingGuide.experience} onChangeText={(t) => setEditingGuide(prev => ({...prev, experience: t}))} placeholder="Ví dụ: 3 năm" />
+                </View>
+                <View style={styles.col}>
+                  <Text style={styles.inputLabel}>Nơi hoạt động</Text>
+                  <TextInput style={styles.input} value={editingGuide.location} onChangeText={(t) => setEditingGuide(prev => ({...prev, location: t}))} placeholder="Đà Lạt" />
+                </View>
+              </View>
+
+              <Text style={styles.inputLabel}>Email liên hệ</Text>
+              <TextInput style={styles.input} keyboardType="email-address" value={editingGuide.email} onChangeText={(t) => setEditingGuide(prev => ({...prev, email: t}))} placeholder="email@example.com" />
+
+              <Text style={styles.inputLabel}>Kỹ năng (cách nhau bởi dấu phẩy)</Text>
+              <TextInput style={styles.input} value={editingGuide.skills as string} onChangeText={(t) => setEditingGuide(prev => ({...prev, skills: t}))} placeholder="VD: Chụp ảnh, Trekking, Tiếng Anh" />
 
               <Text style={styles.inputLabel}>Trạng thái hoạt động</Text>
               <View style={{ flexDirection: "row", gap: 10, marginBottom: 20 }}>
@@ -250,7 +283,6 @@ export default function AdminGuideManagementScreen() {
                 ))}
               </View>
 
-              {/* KHU VỰC LIÊN KẾT TOUR */}
               <Text style={styles.inputLabel}>Các Tour đang đảm nhận ({editingGuide.assignedTours?.length || 0})</Text>
               <View style={styles.toursBox}>
                 {editingGuide.assignedTours?.map(tour => (

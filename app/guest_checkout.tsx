@@ -3,7 +3,7 @@
  * Xác nhận Thanh toán - Bổ sung Liên kết Kho Voucher & Trang Loyalty Đổi điểm
  */
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@/constants/storage-helper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState, useCallback } from 'react';
 import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from 'react-native';

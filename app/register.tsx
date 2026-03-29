@@ -67,7 +67,7 @@ export default function RegisterScreen() {
     }
 
     setLoading(true);
-    const res = await registerAccount(name.trim(), email.trim().toLowerCase(), password, phone.trim());
+    const res = await registerAccount(name.trim(), email.trim().toLowerCase(), phone.trim(), password);
     setLoading(false);
 
     if (res.ok) {

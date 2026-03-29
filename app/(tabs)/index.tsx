@@ -1,7 +1,6 @@
 /**
  * app/(tabs)/index.tsx
- * Trang chủ Guest - FIX LỖI: GUIDE_AVATARS, Loại bỏ Emoji Text, Thay bằng Vector Icons
- * Lấy 100% dữ liệu từ Local Storage
+ * Trang chủ Guest - ĐÃ FIX: Lấy tên chính xác từ Session Đăng nhập (@app_current_user)
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -50,12 +49,6 @@ const BANNERS = [
   { id: 'b2', image: 'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=800&q=85', tag: 'Tour mới', icon: 'star', title: 'Khám phá Đà Lạt', subtitle: 'Săn mây, chill cafe', cta: 'Đặt ngay', badge: 'MỚI', discount: '' },
 ];
 
-const DESTINATIONS = [
-  { name: 'Đà Lạt', count: 24, img: 'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=300&q=80' },
-  { name: 'Phú Quốc', count: 18, img: 'https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=300&q=80' },
-  { name: 'Hội An', count: 15, img: 'https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=300&q=80' },
-];
-
 const QUICK_ACTIONS = [
   { icon: 'island' as const, label: 'Biển', color: '#0284c7', bg: '#e0f2fe' },
   { icon: 'pine-tree' as const, label: 'Núi', color: '#16a34a', bg: '#dcfce7' },
@@ -87,7 +80,6 @@ export default function HomeScreen() {
   const [tours, setTours] = useState<AppTour[]>([]);
   const [guides, setGuides] = useState<AppGuide[]>([]);
   const [guestName, setGuestName] = useState('bạn');
-  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const [keyword, setKeyword] = useState('');
@@ -104,44 +96,26 @@ export default function HomeScreen() {
     setLoading(true);
     
     const loadAll = async () => {
+      // Ép lấy dữ liệu từ Session Đăng nhập
+      const rawUser = await AsyncStorage.getItem('@app_current_user');
+      const sessionUser = rawUser ? JSON.parse(rawUser) : null;
+
       let loadedTours = STATIC_TOURS as any[];
       const rawTours = await AsyncStorage.getItem('@app_tours');
       if (rawTours) loadedTours = JSON.parse(rawTours);
       
       let loadedGuides = STATIC_GUIDES as any[];
-      const rawGuideProfile = await AsyncStorage.getItem('@guide_profile');
-      if (rawGuideProfile) {
-        const gp = JSON.parse(rawGuideProfile);
-        // ✅ FIX: Dùng guideId thật, không fallback về g_me_01
-        if (gp.guideId && gp.name) {
-          const realGuide = {
-            id: gp.guideId, name: gp.name, location: gp.location,
-            experience: gp.experience, skills: gp.skills ? gp.skills.split(',').map((x:string) => x.trim()) : [],
-            rating: 5.0, tours: 10, match: 98, status: 'active', avatar: gp.avatarUrl || GUIDE_AVATARS[0],
-          };
-          // Loại trùng theo cả id lẫn tên
-          loadedGuides = [
-            realGuide,
-            ...loadedGuides.filter(g =>
-              g.id !== realGuide.id &&
-              g.name?.trim().toLowerCase() !== realGuide.name.trim().toLowerCase()
-            ),
-          ];
-        }
-      }
-
-      await AsyncStorage.setItem('@app_guides', JSON.stringify(loadedGuides));
-
-      const profile = await AsyncStorage.getItem('@app_profile').then(r => r ? JSON.parse(r) : { name: 'bạn' });
-      const notifRaw = await AsyncStorage.getItem('@guest_notifications');
+      
       const favRaw = await AsyncStorage.getItem('@guest_favorites');
 
       if (!active) return;
       
       setTours(loadedTours.map((t, i) => ({ ...t, image: t.image || TOUR_IMAGES[i % TOUR_IMAGES.length] })));
       setGuides(loadedGuides);
-      setGuestName((profile.name || 'bạn').trim().split(' ').pop() || 'bạn');
-      if (notifRaw) setUnreadCount(JSON.parse(notifRaw).filter((n: any) => !n.read).length);
+      
+      // Lấy thẳng Tên từ tài khoản đăng nhập (Chắc chắn 100% đúng)
+      setGuestName((sessionUser?.name || 'bạn').trim().split(' ').pop() || 'bạn');
+      
       if (favRaw) setFavorites(new Set(JSON.parse(favRaw)));
       setLoading(false);
     };

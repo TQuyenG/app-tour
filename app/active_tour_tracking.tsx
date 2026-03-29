@@ -3,7 +3,7 @@
  * Màn hình Thực thi Tour (Cập nhật Luồng Kết Thúc, SOS, Cảnh Báo Trễ Giờ & Đánh Giá)
  */
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@/constants/storage-helper';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { 
