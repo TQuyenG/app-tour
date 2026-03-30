@@ -1,11 +1,11 @@
 /**
  * app/admin-payout.tsx
  * Admin quản lý và phê duyệt lệnh rút tiền
- * Đã fix lỗi undefined 'charAt', ẩn Header đen, Custom Popup và bổ sung đầy đủ Styles
+ * ĐÃ ĐỒNG BỘ: Sử dụng storage-helper, đồng thời Cập nhật/Hoàn tiền vào ví HDV khi xử lý lệnh
  */
 import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/constants/storage-helper"; // <-- FIX QUAN TRỌNG: Đồng bộ kho lưu trữ
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
@@ -75,7 +75,7 @@ export default function AdminPayoutScreen() {
       visible: true,
       type: newStatus === "approved" ? "approve" : "reject",
       title: newStatus === "approved" ? "Xác nhận chuyển khoản" : "Từ chối rút tiền",
-      message: newStatus === "approved" ? "Bạn xác nhận đã chuyển khoản thành công số tiền này cho HDV?" : "Bạn muốn từ chối yêu cầu rút tiền này?",
+      message: newStatus === "approved" ? "Bạn xác nhận đã chuyển khoản thành công số tiền này cho HDV?" : "Hệ thống sẽ hoàn lại số tiền này vào Ví của HDV. Xác nhận từ chối?",
       targetId: id,
       actionType: newStatus
     });
@@ -84,6 +84,9 @@ export default function AdminPayoutScreen() {
   const executeAction = async () => {
     if (!confirmPopup.targetId || !confirmPopup.actionType) return;
     try {
+      const targetReq = requests.find(r => r.id === confirmPopup.targetId);
+      
+      // 1. Cập nhật phiếu bên Admin
       const updated = requests.map(req => {
         if (req.id === confirmPopup.targetId) {
           return { ...req, status: confirmPopup.actionType as PayoutStatus, processedDate: new Date().toLocaleString("vi-VN") };
@@ -92,6 +95,32 @@ export default function AdminPayoutScreen() {
       });
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       setRequests(updated);
+
+      // 2. ĐỒNG BỘ NGƯỢC VỀ VÍ HDV (@guide_wallet)
+      // Trong thực tế sẽ map bằng guideId, ở demo này dùng @guide_wallet cục bộ
+      if (targetReq) {
+        const wRaw = await AsyncStorage.getItem('@guide_wallet');
+        if (wRaw) {
+          let wallet = JSON.parse(wRaw);
+          let txIndex = wallet.transactions.findIndex((t: any) => t.id === targetReq.id);
+          
+          if (txIndex > -1) {
+            wallet.transactions[txIndex].status = confirmPopup.actionType;
+            
+            if (confirmPopup.actionType === 'rejected') {
+               // Nếu Admin từ chối -> Hoàn lại tiền vào số dư khả dụng
+               wallet.balance += targetReq.amount;
+               wallet.transactions[txIndex].desc = 'Bị từ chối: Lệnh rút tiền bị hủy (Đã hoàn tiền)';
+               wallet.transactions[txIndex].type = 'rejected'; // Đổi type để hiện icon hoàn tiền
+            } else {
+               // Nếu Admin duyệt -> Cập nhật mô tả thành công
+               wallet.transactions[txIndex].desc = 'Thành công: Đã chuyển tiền về Tài khoản Ngân hàng';
+            }
+            await AsyncStorage.setItem('@guide_wallet', JSON.stringify(wallet));
+          }
+        }
+      }
+
       setSelectedReq(null);
       setConfirmPopup({ visible: true, type: "success", title: "Thành công", message: `Đã cập nhật trạng thái lệnh rút tiền.` });
     } catch (error) {
@@ -339,7 +368,6 @@ const styles = StyleSheet.create({
   statusResultBox: { padding: 16, borderRadius: 12, alignItems: "center" },
   statusResultTxt: { fontSize: 14, fontWeight: "700" },
 
-  // CÁC STYLE CHO CUSTOM POPUP ĐÃ ĐƯỢC THÊM ĐẦY ĐỦ
   confirmOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
   confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20 },
   confirmIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },

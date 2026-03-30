@@ -1,41 +1,27 @@
 /**
  * app/staff-booking-management.tsx
  * Staff xem, lọc, tìm kiếm, xem chi tiết và cập nhật trạng thái booking
- * SẠCH 100% DỮ LIỆU MẪU - ĐỒNG BỘ NÚT BACK - DỌN RÁC LOCAL STORAGE
+ * ĐÃ BỔ SUNG: Hiển thị Đánh giá từ Khách hàng trong Chi tiết
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  Alert, Modal, ScrollView, StatusBar, StyleSheet,
-  Text, TextInput, TouchableOpacity, View, Image
-} from "react-native";
+import { Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StaffTabBar } from "@/components/StaffTabBar";
 
-type BookStatus =
-  | "pending_guide" | "guide_accepted" | "checked_in"
-  | "on_tour" | "completed" | "cancelled" | "pending" | "accepted" | "rejected" | "paid";
+type BookStatus = "pending_guide" | "guide_accepted" | "checked_in" | "on_tour" | "completed" | "cancelled" | "pending" | "accepted" | "rejected" | "paid";
 
-interface AuditLog {
-  actor: string; action: string; time: string; note?: string;
-}
+interface AuditLog { actor: string; action: string; time: string; note?: string; }
 
 interface Booking {
   id: string; tourName: string; guideName?: string; guideId?: string;
   guests: number; totalAmount?: number; priceRaw?: number; price?: string | number;
-  status: BookStatus;
-  createdAt: string; tourDate?: string; startTime?: string; date?: string;
-  customerName?: string; guestName?: string;
-  customerPhone?: string; phone?: string;
-  customerEmail?: string;
-  paymentMethod?: string; services?: string[];
-  internalNote?: string;
-  slaMinutes?: number;
-  auditLog?: AuditLog[];
-  pickupLocation?: string;
-  tourCode?: string; tourId?: string;
+  status: BookStatus; createdAt: string; tourDate?: string; startTime?: string; date?: string;
+  customerName?: string; guestName?: string; customerPhone?: string; phone?: string; customerEmail?: string;
+  paymentMethod?: string; services?: string[]; internalNote?: string; slaMinutes?: number;
+  auditLog?: AuditLog[]; pickupLocation?: string; tourCode?: string; tourId?: string;
   image?: string; tourImage?: string;
 }
 
@@ -68,6 +54,7 @@ export default function StaffBookingManagement() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [bookings, setBookings]     = useState<Booking[]>([]);
+  const [reviews, setReviews]       = useState<any[]>([]); // THÊM REVIEWS STATE
   const [filter, setFilter]         = useState("Tất cả");
   const [search, setSearch]         = useState("");
   const [page, setPage]             = useState(1);
@@ -76,26 +63,23 @@ export default function StaffBookingManagement() {
   const [noteInput, setNoteInput]   = useState("");
   const [editNote, setEditNote]     = useState(false);
 
-  // LOAD REAL DATA ONLY & CLEAN UP OLD DUMMY DATA
   useFocusEffect(useCallback(() => {
     AsyncStorage.getItem("@guest_bookings").then(raw => {
       if (raw) {
         let parsed: Booking[] = JSON.parse(raw);
-        
-        // BỘ LỌC DỌN RÁC: Xóa ngay các booking ảo còn kẹt lại từ các bản code trước (bắt đầu bằng BK001)
         const fakeIds = ["BK001001", "BK001003", "BK001009"];
         parsed = parsed.filter(b => !fakeIds.includes(b.id));
-
-        // Lưu lại dữ liệu sạch vào máy để các lần sau không bị lại
         AsyncStorage.setItem("@guest_bookings", JSON.stringify(parsed)).catch(() => {});
-
-        // Sắp xếp mới nhất lên đầu
         parsed.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         setBookings(parsed);
-      } else {
-        setBookings([]);
-      }
+      } else { setBookings([]); }
     }).catch(() => setBookings([]));
+
+    // LOAD REVIEWS
+    AsyncStorage.getItem("@app_reviews").then(raw => {
+       if (raw) setReviews(JSON.parse(raw));
+    }).catch(() => setReviews([]));
+
     setPage(1);
   }, []));
 
@@ -116,20 +100,14 @@ export default function StaffBookingManagement() {
     Alert.alert(label, msgs[newStatus] || `Cập nhật sang "${label}"?`, [
       { text: "Hủy bỏ", style: "cancel" },
       {
-        text: "Xác nhận",
-        style: newStatus === "cancelled" ? "destructive" : "default",
+        text: "Xác nhận", style: newStatus === "cancelled" ? "destructive" : "default",
         onPress: async () => {
           const now = new Date();
           const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) + " · " + now.toLocaleDateString("vi-VN");
           const log: AuditLog = { actor: "Staff CSKH", action: `Cập nhật → ${label}`, time: timeStr };
-          const updated = bookings.map(x => x.id === b.id
-            ? { ...x, status: newStatus, auditLog: [...(x.auditLog || []), log] }
-            : x
-          );
+          const updated = bookings.map(x => x.id === b.id ? { ...x, status: newStatus, auditLog: [...(x.auditLog || []), log] } : x);
           await persist(updated);
-          if (detail?.id === b.id) {
-            setDetail(d => d ? { ...d, status: newStatus, auditLog: [...(d.auditLog || []), log] } : null);
-          }
+          if (detail?.id === b.id) { setDetail(d => d ? { ...d, status: newStatus, auditLog: [...(d.auditLog || []), log] } : null); }
           Alert.alert("✅ Thành công", `Đã cập nhật → ${label}`);
         },
       },
@@ -141,10 +119,7 @@ export default function StaffBookingManagement() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) + " · " + now.toLocaleDateString("vi-VN");
     const log: AuditLog = { actor: "Staff CSKH", action: "Cập nhật ghi chú nội bộ", time: timeStr, note: noteInput.trim() };
-    const updated = bookings.map(x => x.id === detail.id
-      ? { ...x, internalNote: noteInput.trim(), auditLog: [...(x.auditLog || []), log] }
-      : x
-    );
+    const updated = bookings.map(x => x.id === detail.id ? { ...x, internalNote: noteInput.trim(), auditLog: [...(x.auditLog || []), log] } : x);
     await persist(updated);
     setDetail(d => d ? { ...d, internalNote: noteInput.trim(), auditLog: [...(d.auditLog || []), log] } : null);
     setEditNote(false);
@@ -154,12 +129,7 @@ export default function StaffBookingManagement() {
     const kw = search.trim().toLowerCase();
     const cName = (b.customerName || b.guestName || "").toLowerCase();
     const gName = (b.guideName || "").toLowerCase();
-    const matchSearch = !kw ||
-      b.id.toLowerCase().includes(kw) ||
-      (b.tourName || "").toLowerCase().includes(kw) ||
-      gName.includes(kw) ||
-      cName.includes(kw) ||
-      (b.customerPhone || b.phone || "").includes(kw);
+    const matchSearch = !kw || b.id.toLowerCase().includes(kw) || (b.tourName || "").toLowerCase().includes(kw) || gName.includes(kw) || cName.includes(kw) || (b.customerPhone || b.phone || "").includes(kw);
     return matchSearch && FILTER_MAP[filter]?.(b);
   });
 
@@ -167,10 +137,7 @@ export default function StaffBookingManagement() {
   const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openDetail = (b: Booking) => {
-    setDetail(b);
-    setNoteInput(b.internalNote || "");
-    setEditNote(false);
-    setShowDetail(true);
+    setDetail(b); setNoteInput(b.internalNote || ""); setEditNote(false); setShowDetail(true);
   };
 
   const DetailModal = () => {
@@ -188,13 +155,8 @@ export default function StaffBookingManagement() {
           <View style={s.modalSheet}>
             <View style={s.modalHandle} />
             <View style={s.modalHeader}>
-              <View>
-                <Text style={s.modalTitle}>Chi tiết Booking</Text>
-                <Text style={s.modalSub}>#{detail.id}</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowDetail(false)} style={s.closeBtn}>
-                <Ionicons name="close" size={20} color="#7a8cc2" />
-              </TouchableOpacity>
+              <View><Text style={s.modalTitle}>Chi tiết Booking</Text><Text style={s.modalSub}>#{detail.id}</Text></View>
+              <TouchableOpacity onPress={() => setShowDetail(false)} style={s.closeBtn}><Ionicons name="close" size={20} color="#7a8cc2" /></TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={s.modalBody} showsVerticalScrollIndicator={false}>
               
@@ -215,65 +177,53 @@ export default function StaffBookingManagement() {
                   { icon: "cash-outline",     label: "Tổng tiền",   value: fmt(price), highlight: true },
                 ].map((row, i) => (
                   <View key={i} style={s.detailRow}>
-                    <View style={s.detailIcon}>
-                      <Ionicons name={row.icon as any} size={14} color="#7a8cc2" />
-                    </View>
+                    <View style={s.detailIcon}><Ionicons name={row.icon as any} size={14} color="#7a8cc2" /></View>
                     <Text style={s.detailLabel}>{row.label}</Text>
-                    <Text style={[s.detailValue, (row as any).highlight && { color: "#2856d6", fontWeight: "800" }]} numberOfLines={2}>
-                      {row.value}
-                    </Text>
+                    <Text style={[s.detailValue, (row as any).highlight && { color: "#2856d6", fontWeight: "800" }]} numberOfLines={2}>{row.value}</Text>
                   </View>
                 ))}
               </View>
+
+              {/* TÌM VÀ HIỂN THỊ ĐÁNH GIÁ CỦA KHÁCH NẾU CÓ */}
+              {(() => {
+                 const rv = reviews.find(r => String(r.bookingId) === String(detail.id));
+                 if (!rv) return null;
+                 return (
+                   <View style={s.reviewSection}>
+                     <View style={s.reviewHeader}>
+                        <Ionicons name="star" size={16} color="#d97706" />
+                        <Text style={s.reviewTitle}>Đánh giá từ khách hàng</Text>
+                     </View>
+                     <View style={{flexDirection: 'row', gap: 10, marginTop: 4}}>
+                        <Text style={s.reviewStats}>Tour: <Text style={{fontWeight:'bold'}}>{rv.tourRating || rv.rating || 5}⭐</Text></Text>
+                        <Text style={s.reviewStats}>HDV: <Text style={{fontWeight:'bold'}}>{rv.guideRating || rv.overallRating || rv.rating || 5}⭐</Text></Text>
+                     </View>
+                     <Text style={s.reviewText}>"{rv.reviewText || rv.comment || 'Không có nhận xét'}"</Text>
+                     {rv.tipAmount > 0 && <Text style={s.reviewTip}>+ Khách Tip HDV: {fmt(rv.tipAmount)}</Text>}
+                   </View>
+                 );
+              })()}
 
               <View style={s.noteSection}>
                 <View style={s.noteSectionHeader}>
                   <Ionicons name="lock-closed-outline" size={13} color="#7c3aed" />
                   <Text style={s.noteSectionTitle}>Ghi chú nội bộ</Text>
-                  <TouchableOpacity onPress={() => { setNoteInput(detail.internalNote || ""); setEditNote(true); }} style={s.editNoteBtn}>
-                    <Ionicons name="pencil-outline" size={13} color="#7c3aed" />
-                    <Text style={s.editNoteTxt}>Sửa</Text>
-                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setNoteInput(detail.internalNote || ""); setEditNote(true); }} style={s.editNoteBtn}><Ionicons name="pencil-outline" size={13} color="#7c3aed" /><Text style={s.editNoteTxt}>Sửa</Text></TouchableOpacity>
                 </View>
                 {editNote ? (
-                  <View>
-                    <TextInput
-                      style={s.noteInput} value={noteInput} onChangeText={setNoteInput}
-                      placeholder="Nhập ghi chú nội bộ..." placeholderTextColor="#b0bdd8" multiline numberOfLines={3}
-                    />
-                    <View style={s.noteActions}>
-                      <TouchableOpacity style={s.noteSaveBtn} onPress={saveNote}><Text style={s.noteSaveTxt}>Lưu ghi chú</Text></TouchableOpacity>
-                      <TouchableOpacity style={s.noteCancelBtn} onPress={() => setEditNote(false)}><Text style={s.noteCancelTxt}>Hủy</Text></TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <Text style={[s.noteTxt, !detail.internalNote && { color: "#c0cbe8", fontStyle: "italic" }]}>
-                    {detail.internalNote || "Chưa có ghi chú..."}
-                  </Text>
-                )}
+                  <View><TextInput style={s.noteInput} value={noteInput} onChangeText={setNoteInput} placeholder="Nhập ghi chú nội bộ..." placeholderTextColor="#b0bdd8" multiline numberOfLines={3} /><View style={s.noteActions}><TouchableOpacity style={s.noteSaveBtn} onPress={saveNote}><Text style={s.noteSaveTxt}>Lưu ghi chú</Text></TouchableOpacity><TouchableOpacity style={s.noteCancelBtn} onPress={() => setEditNote(false)}><Text style={s.noteCancelTxt}>Hủy</Text></TouchableOpacity></View></View>
+                ) : (<Text style={[s.noteTxt, !detail.internalNote && { color: "#c0cbe8", fontStyle: "italic" }]}>{detail.internalNote || "Chưa có ghi chú..."}</Text>)}
               </View>
 
               <Text style={s.actionsTitle}>Thao tác nhanh</Text>
               <View style={s.modalActions}>
                 {!["completed", "cancelled", "rejected"].includes(detail.status) && (
-                  <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#dcfce7" }]}
-                    onPress={() => { setShowDetail(false); setTimeout(() => updateStatus(detail, "completed"), 300); }}>
-                    <Ionicons name="checkmark-circle-outline" size={16} color="#16a34a" />
-                    <Text style={[s.modalActionTxt, { color: "#16a34a" }]}>Hoàn tất</Text>
-                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#dcfce7" }]} onPress={() => { setShowDetail(false); setTimeout(() => updateStatus(detail, "completed"), 300); }}><Ionicons name="checkmark-circle-outline" size={16} color="#16a34a" /><Text style={[s.modalActionTxt, { color: "#16a34a" }]}>Hoàn tất</Text></TouchableOpacity>
                 )}
                 {!["completed", "cancelled", "rejected"].includes(detail.status) && (
-                  <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#fee2e2" }]}
-                    onPress={() => { setShowDetail(false); setTimeout(() => updateStatus(detail, "cancelled"), 300); }}>
-                    <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
-                    <Text style={[s.modalActionTxt, { color: "#dc2626" }]}>Hủy booking</Text>
-                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#fee2e2" }]} onPress={() => { setShowDetail(false); setTimeout(() => updateStatus(detail, "cancelled"), 300); }}><Ionicons name="close-circle-outline" size={16} color="#dc2626" /><Text style={[s.modalActionTxt, { color: "#dc2626" }]}>Hủy booking</Text></TouchableOpacity>
                 )}
-                <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#eaf0ff" }]}
-                  onPress={() => { setShowDetail(false); router.push("/staff-livechat" as any); }}>
-                  <Ionicons name="chatbubble-outline" size={16} color="#2856d6" />
-                  <Text style={[s.modalActionTxt, { color: "#2856d6" }]}>Mở Chat</Text>
-                </TouchableOpacity>
+                <TouchableOpacity style={[s.modalActionBtn, { backgroundColor: "#eaf0ff" }]} onPress={() => { setShowDetail(false); router.push("/staff-livechat" as any); }}><Ionicons name="chatbubble-outline" size={16} color="#2856d6" /><Text style={[s.modalActionTxt, { color: "#2856d6" }]}>Mở Chat</Text></TouchableOpacity>
               </View>
             </ScrollView>
           </View>
@@ -287,43 +237,24 @@ export default function StaffBookingManagement() {
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       <DetailModal />
 
-      {/* ĐÃ CẬP NHẬT NÚT BACK CHUẨN UX */}
       <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={s.iconBtn}>
-          <Ionicons name="arrow-back" size={22} color="#1f2a58" />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={s.headerTitle}>Quản lý Booking</Text>
-          <Text style={s.headerSub}>Toàn hệ thống</Text>
-        </View>
+        <TouchableOpacity onPress={() => router.back()} style={s.iconBtn}><Ionicons name="arrow-back" size={22} color="#1f2a58" /></TouchableOpacity>
+        <View style={{ flex: 1 }}><Text style={s.headerTitle}>Quản lý Booking</Text><Text style={s.headerSub}>Toàn hệ thống</Text></View>
       </View>
 
       <View style={s.searchBox}>
         <Ionicons name="search" size={16} color="#8ea0d6" />
-        <TextInput
-          style={s.searchInput}
-          placeholder="Tìm mã, tên khách, SĐT, tour..."
-          value={search}
-          onChangeText={v => { setSearch(v); setPage(1); }}
-          placeholderTextColor="#b0bdd8"
-        />
-        {!!search && (
-          <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-            <Ionicons name="close-circle" size={16} color="#8ea0d6" />
-          </TouchableOpacity>
-        )}
+        <TextInput style={s.searchInput} placeholder="Tìm mã, tên khách, SĐT, tour..." value={search} onChangeText={v => { setSearch(v); setPage(1); }} placeholderTextColor="#b0bdd8" />
+        {!!search && <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}><Ionicons name="close-circle" size={16} color="#8ea0d6" /></TouchableOpacity>}
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterScroll} contentContainerStyle={s.filterRow}>
         {FILTERS.map(f => {
           const count = bookings.filter(FILTER_MAP[f]).length;
           return (
-            <TouchableOpacity key={f} style={[s.filterChip, filter === f && s.filterActive]}
-              onPress={() => { setFilter(f); setPage(1); }}>
+            <TouchableOpacity key={f} style={[s.filterChip, filter === f && s.filterActive]} onPress={() => { setFilter(f); setPage(1); }}>
               <Text style={[s.filterTxt, filter === f && s.filterTxtActive]}>{f}</Text>
-              <View style={[s.filterCount, filter === f && s.filterCountActive]}>
-                <Text style={[s.filterCountTxt, filter === f && { color: "#f59e0b" }]}>{count}</Text>
-              </View>
+              <View style={[s.filterCount, filter === f && s.filterCountActive]}><Text style={[s.filterCountTxt, filter === f && { color: "#f59e0b" }]}>{count}</Text></View>
             </TouchableOpacity>
           );
         })}
@@ -331,99 +262,50 @@ export default function StaffBookingManagement() {
 
       <ScrollView contentContainerStyle={[s.content, { paddingBottom: 96 }]}>
         <View style={s.summaryRow}>
-          {[
-            { label: "Tổng",       value: bookings.length,                                      color: "#1f2a58" },
-            { label: "Chờ xử lý",  value: bookings.filter(b => ["pending", "paid"].includes(b.status)).length, color: "#d97706" },
-            { label: "Đang đi",    value: bookings.filter(b => ["on_tour", "checked_in", "accepted"].includes(b.status)).length, color: "#0284c7" },
-            { label: "Hoàn tất",   value: bookings.filter(b => b.status === "completed").length, color: "#16a34a" },
-          ].map((item, i) => (
-            <View key={i} style={s.summaryItem}>
-              <Text style={[s.summaryValue, { color: item.color }]}>{item.value}</Text>
-              <Text style={s.summaryLabel}>{item.label}</Text>
-            </View>
+          {[ { label: "Tổng", value: bookings.length, color: "#1f2a58" }, { label: "Chờ xử lý", value: bookings.filter(b => ["pending", "paid"].includes(b.status)).length, color: "#d97706" }, { label: "Đang đi", value: bookings.filter(b => ["on_tour", "checked_in", "accepted"].includes(b.status)).length, color: "#0284c7" }, { label: "Hoàn tất", value: bookings.filter(b => b.status === "completed").length, color: "#16a34a" } ].map((item, i) => (
+            <View key={i} style={s.summaryItem}><Text style={[s.summaryValue, { color: item.color }]}>{item.value}</Text><Text style={s.summaryLabel}>{item.label}</Text></View>
           ))}
         </View>
 
-        {filtered.length === 0 && (
-          <View style={s.emptyCard}>
-            <Ionicons name="receipt-outline" size={48} color="#c0cbe8" />
-            <Text style={s.emptyTxt}>Hệ thống chưa có booking nào</Text>
-          </View>
-        )}
+        {filtered.length === 0 && <View style={s.emptyCard}><Ionicons name="receipt-outline" size={48} color="#c0cbe8" /><Text style={s.emptyTxt}>Hệ thống chưa có booking nào</Text></View>}
 
         {paginated.map(b => {
           const meta   = STATUS_META[b.status] ?? STATUS_META.pending;
           const isSLA  = (b.slaMinutes || 0) > 60 && ["pending", "paid"].includes(b.status);
-          
           const cName  = b.customerName || b.guestName || "Khách hàng";
           const price  = b.totalAmount || b.priceRaw || Number(b.price) || 0;
-          
-          // Lấy đúng ảnh thật, nếu không có thì để ảnh mặc định
           const imgUrl = b.image || b.tourImage || "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=500&q=80";
           const tDate  = b.tourDate || b.startTime || b.date || "Chưa có ngày";
 
           return (
             <TouchableOpacity key={b.id} style={[s.card, isSLA && s.cardSLA]} onPress={() => openDetail(b)} activeOpacity={0.85}>
-              
               <View style={s.cardImgWrap}>
                 <Image source={{ uri: imgUrl }} style={s.cardImg} resizeMode="cover" />
                 <View style={s.cardImgOverlay} />
-                <View style={[s.statusBadgeFloat, { backgroundColor: meta.bg }]}>
-                  <View style={[s.statusDot, { backgroundColor: meta.color }]} />
-                  <Text style={[s.statusTxt, { color: meta.color }]}>{meta.label}</Text>
-                </View>
+                <View style={[s.statusBadgeFloat, { backgroundColor: meta.bg }]}><View style={[s.statusDot, { backgroundColor: meta.color }]} /><Text style={[s.statusTxt, { color: meta.color }]}>{meta.label}</Text></View>
               </View>
 
-              {isSLA && (
-                <View style={s.slaStrip}>
-                  <Ionicons name="time-outline" size={11} color="#dc2626" />
-                  <Text style={s.slaStripTxt}>SLA vượt {b.slaMinutes} phút</Text>
-                </View>
-              )}
+              {isSLA && <View style={s.slaStrip}><Ionicons name="time-outline" size={11} color="#dc2626" /><Text style={s.slaStripTxt}>SLA vượt {b.slaMinutes} phút</Text></View>}
               
               <Text style={s.tourName} numberOfLines={1}>{b.tourName}</Text>
               <View style={s.infoGrid}>
-                {[
-                  { icon: "person-outline",   val: cName },
-                  { icon: "compass-outline",  val: b.guideName || "Chưa có HDV" },
-                  { icon: "people-outline",   val: `${b.guests || 1} khách` },
-                  { icon: "calendar-outline", val: tDate },
-                ].map((item, i) => (
-                  <View key={i} style={s.infoItem}>
-                    <Ionicons name={item.icon as any} size={11} color="#8ea0d6" />
-                    <Text style={s.infoTxt} numberOfLines={1}>{item.val}</Text>
-                  </View>
+                {[ { icon: "person-outline", val: cName }, { icon: "compass-outline", val: b.guideName || "Chưa có HDV" }, { icon: "people-outline", val: `${b.guests || 1} khách` }, { icon: "calendar-outline", val: tDate } ].map((item, i) => (
+                  <View key={i} style={s.infoItem}><Ionicons name={item.icon as any} size={11} color="#8ea0d6" /><Text style={s.infoTxt} numberOfLines={1}>{item.val}</Text></View>
                 ))}
               </View>
-              {b.internalNote ? (
-                <View style={s.notePreview}>
-                  <Ionicons name="lock-closed-outline" size={10} color="#7c3aed" />
-                  <Text style={s.notePreviewTxt} numberOfLines={1}>{b.internalNote}</Text>
-                </View>
-              ) : null}
-              <View style={s.cardFooter}>
-                <Text style={s.price}>{fmt(price)}</Text>
-                <Text style={s.bookingIdTxt}>#{b.id}</Text>
-              </View>
+              {b.internalNote ? <View style={s.notePreview}><Ionicons name="lock-closed-outline" size={10} color="#7c3aed" /><Text style={s.notePreviewTxt} numberOfLines={1}>{b.internalNote}</Text></View> : null}
+              <View style={s.cardFooter}><Text style={s.price}>{fmt(price)}</Text><Text style={s.bookingIdTxt}>#{b.id}</Text></View>
             </TouchableOpacity>
           );
         })}
 
         {totalPages > 1 && (
           <View style={s.pagination}>
-            <TouchableOpacity style={[s.pageBtn, page === 1 && s.pageBtnDisabled]}
-              onPress={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-              <Ionicons name="chevron-back" size={16} color={page === 1 ? "#c0cbe8" : "#2856d6"} />
-            </TouchableOpacity>
+            <TouchableOpacity style={[s.pageBtn, page === 1 && s.pageBtnDisabled]} onPress={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}><Ionicons name="chevron-back" size={16} color={page === 1 ? "#c0cbe8" : "#2856d6"} /></TouchableOpacity>
             {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-              <TouchableOpacity key={p} style={[s.pageNum, page === p && s.pageNumActive]} onPress={() => setPage(p)}>
-                <Text style={[s.pageNumTxt, page === p && s.pageNumTxtActive]}>{p}</Text>
-              </TouchableOpacity>
+              <TouchableOpacity key={p} style={[s.pageNum, page === p && s.pageNumActive]} onPress={() => setPage(p)}><Text style={[s.pageNumTxt, page === p && s.pageNumTxtActive]}>{p}</Text></TouchableOpacity>
             ))}
-            <TouchableOpacity style={[s.pageBtn, page === totalPages && s.pageBtnDisabled]}
-              onPress={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-              <Ionicons name="chevron-forward" size={16} color={page === totalPages ? "#c0cbe8" : "#2856d6"} />
-            </TouchableOpacity>
+            <TouchableOpacity style={[s.pageBtn, page === totalPages && s.pageBtnDisabled]} onPress={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}><Ionicons name="chevron-forward" size={16} color={page === totalPages ? "#c0cbe8" : "#2856d6"} /></TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -499,6 +381,14 @@ const s = StyleSheet.create({
   detailIcon:       { width: 26, height: 26, borderRadius: 7, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
   detailLabel:      { color: "#7a8cc2", fontSize: 12, width: 95 },
   detailValue:      { flex: 1, color: "#1f2a58", fontWeight: "600", fontSize: 13, textAlign: "right" },
+  
+  reviewSection: { backgroundColor: "#fffbeb", borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: "#fde68a" },
+  reviewHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  reviewTitle: { color: "#d97706", fontWeight: "800", fontSize: 13 },
+  reviewStats: { color: "#92400e", fontSize: 12 },
+  reviewText: { color: "#92400e", fontSize: 13, lineHeight: 20, marginTop: 8, fontStyle: 'italic' },
+  reviewTip: { color: "#16a34a", fontSize: 12, fontWeight: "700", marginTop: 6 },
+
   noteSection:      { backgroundColor: "#f5f0ff", borderRadius: 12, padding: 12, marginBottom: 14 },
   noteSectionHeader:{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 8 },
   noteSectionTitle: { color: "#7c3aed", fontWeight: "700", fontSize: 12, flex: 1 },

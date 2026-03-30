@@ -1,7 +1,7 @@
 /**
  * app/(tabs)/explore.tsx
  * Siêu Trung Tâm Tìm Kiếm - AI Smart Search & Bộ lọc sâu (Tour + HDV)
- * ĐÃ CẬP NHẬT: Search chính xác từng từ (AND), Cross-match logic, Lọc HDV Rảnh.
+ * ĐÃ CẬP NHẬT: Thêm tính năng Popup hiển thị Đánh giá Công khai khi bấm vào icon Sao
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@/constants/storage-helper';
@@ -29,17 +29,18 @@ export default function GuestExploreScreen() {
   const [allTours, setAllTours] = useState<any[]>([]);
   const [allGuides, setAllGuides] = useState<any[]>([]);
   const [guideSchedules, setGuideSchedules] = useState<any[]>([]);
+  const [allReviews, setAllReviews] = useState<any[]>([]); // Kho chứa Review
 
   // Filter States
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filters, setFilters] = useState({
-    category: 'Tất cả',
-    language: 'Tất cả',
-    hobby: 'Tất cả',
-    experience: 'Tất cả',
-    isLocal: false,
-    isAvailable: false // Thêm: Chỉ hiện HDV rảnh
+    category: 'Tất cả', language: 'Tất cả', hobby: 'Tất cả', experience: 'Tất cả', isLocal: false, isAvailable: false
   });
+
+  // Public Review States
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [publicReviews, setPublicReviews] = useState<any[]>([]);
+  const [reviewTargetName, setReviewTargetName] = useState("");
 
   const CATEGORIES = ["Tất cả", "Biển đảo", "Núi rừng", "Văn hóa", "Nghỉ dưỡng"];
   const LANGUAGES = ["Tất cả", "Tiếng Việt", "Tiếng Anh", "Tiếng Trung"];
@@ -49,15 +50,17 @@ export default function GuestExploreScreen() {
     const loadAllData = async () => {
       setLoading(true);
       try {
-        const [tRaw, gRaw, sRaw] = await Promise.all([
+        const [tRaw, gRaw, sRaw, rRaw] = await Promise.all([
           AsyncStorage.getItem('@app_tours'),
           AsyncStorage.getItem('@app_guides'),
-          AsyncStorage.getItem('@guide_schedule')
+          AsyncStorage.getItem('@guide_schedule'),
+          AsyncStorage.getItem('@app_reviews')
         ]);
 
         if (tRaw) setAllTours(JSON.parse(tRaw).filter((t: any) => t.status === 'active'));
         if (gRaw) setAllGuides(JSON.parse(gRaw));
         if (sRaw) setGuideSchedules(JSON.parse(sRaw));
+        if (rRaw) setAllReviews(JSON.parse(rRaw));
       } catch (e) {
         console.error(e);
       } finally {
@@ -67,50 +70,46 @@ export default function GuestExploreScreen() {
     loadAllData();
   }, []));
 
-  // Helper check HDV có rảnh không (Dựa vào schedule local)
   const isGuideBusy = useCallback((guideId: string) => {
     return guideSchedules.some(sch => sch.guideId === guideId && sch.type === 'tour');
   }, [guideSchedules]);
 
-  // --- ENGINE TÌM KIẾM THÔNG MINH (CROSS-MATCHING) ---
+  // HÀM MỞ POPUP ĐÁNH GIÁ CÔNG KHAI
+  const openPublicReviews = (type: 'tour' | 'guide', targetId: string, targetName: string) => {
+    const targetReviews = allReviews.filter(r => {
+        if (r.isHidden) return false; // Không hiển thị những đánh giá đã bị Staff ẩn
+        if (type === 'tour') return r.tourId === targetId || r.tourName === targetName;
+        if (type === 'guide') return r.guideId === targetId || r.guideName === targetName;
+        return false;
+    });
+    setPublicReviews(targetReviews);
+    setReviewTargetName(targetName);
+    setShowReviewModal(true);
+  };
+
   const filteredResults = useMemo(() => {
-    // Tách từ khóa, loại bỏ dấu câu
     const query = aiQuery.toLowerCase().trim().replace(/[.,]/g, '');
     const keywords = query.split(/\s+/).filter(k => k.length > 0);
 
-    // 1. LỌC HƯỚNG DẪN VIÊN TRƯỚC
     const validGuides = allGuides.filter(g => {
       const content = `${g.name} ${g.location} ${(g.skills||[]).join(' ')} ${g.bio} ${(g.languages||[]).join(' ')} ${(g.hobbies||[]).join(' ')}`.toLowerCase();
-      
-      // AI Search: Phải chứa TẤT CẢ các từ khóa nhập vào (Logic AND)
       const matchAI = keywords.every(k => content.includes(k));
-
-      // Filters cứng
       const matchLang = filters.language === 'Tất cả' || g.languages?.includes(filters.language);
       const matchHobby = filters.hobby === 'Tất cả' || (g.hobbies && g.hobbies.includes(filters.hobby)) || (g.skills && g.skills.includes(filters.hobby));
       const matchLocal = !filters.isLocal || g.isLocal === true;
       const matchAvailable = !filters.isAvailable || !isGuideBusy(g.id);
-
       return matchAI && matchLang && matchHobby && matchLocal && matchAvailable;
     });
 
-    // 2. LỌC TOUR (ĐỒNG BỘ VỚI HDV)
     const validTours = allTours.filter(t => {
       const content = `${t.name} ${t.departure} ${t.category} ${t.description}`.toLowerCase();
-      
-      // AI Search cho Tour
       const matchAI = keywords.every(k => content.includes(k));
       const matchCat = filters.category === 'Tất cả' || t.category === filters.category;
-
-      // Cross-match: Kiểm tra xem Tour này có trùng địa điểm với các HDV hợp lệ ở trên không
       const hasMatchingGuide = validGuides.some(g =>
         g.location?.toLowerCase().includes(t.departure?.toLowerCase()) ||
         t.departure?.toLowerCase().includes(g.location?.toLowerCase())
       );
-
-      // Nếu user có xài bộ lọc liên quan đến HDV (Ngôn ngữ, Sở thích, Rảnh...), thì Tour BẮT BUỘC phải có HDV thỏa mãn.
       const isGuideFilterActive = filters.language !== 'Tất cả' || filters.hobby !== 'Tất cả' || filters.isLocal || filters.isAvailable;
-
       return matchAI && matchCat && (!isGuideFilterActive || hasMatchingGuide);
     });
 
@@ -129,7 +128,6 @@ export default function GuestExploreScreen() {
       <View style={[s.header, { paddingTop: insets.top + Math.round(14 * scale) }]}>
         <Text style={s.title}>Khám phá</Text>
         
-        {/* THANH TÌM KIẾM AI */}
         <View style={s.aiSearchContainer}>
           <View style={s.aiSearchBox}>
              <Ionicons name="sparkles" size={20} color="#f59e0b" />
@@ -173,7 +171,12 @@ export default function GuestExploreScreen() {
                 </View>
                 <View style={s.priceRow}>
                    <Text style={s.tourPrice}>{(t.priceRaw || 0).toLocaleString('vi-VN')}đ</Text>
-                   <View style={s.ratingBadge}><Ionicons name="star" size={10} color="#f59e0b"/><Text style={s.ratingText}>{t.rating}</Text></View>
+                   
+                   {/* BẤM VÀO ĐÂY ĐỂ HIỆN REVIEW */}
+                   <TouchableOpacity style={s.ratingBadge} onPress={(e) => { e.stopPropagation(); openPublicReviews('tour', t.id, t.name); }}>
+                      <Ionicons name="star" size={10} color="#f59e0b"/>
+                      <Text style={s.ratingText}>{t.rating}</Text>
+                   </TouchableOpacity>
                 </View>
               </View>
             </TouchableOpacity>
@@ -202,7 +205,12 @@ export default function GuestExploreScreen() {
                 </View>
 
                 <View style={s.guideFooter}>
-                   <View style={s.footerStat}><Ionicons name="star" size={14} color="#f59e0b"/><Text style={s.statVal}>{g.rating || '5.0'}</Text></View>
+                   {/* BẤM VÀO ĐÂY ĐỂ HIỆN REVIEW */}
+                   <TouchableOpacity style={s.footerStat} onPress={(e) => { e.stopPropagation(); openPublicReviews('guide', g.id, g.name); }}>
+                      <Ionicons name="star" size={14} color="#f59e0b"/>
+                      <Text style={s.statVal}>{g.rating || '5.0'} (Xem nhận xét)</Text>
+                   </TouchableOpacity>
+                   
                    <View style={s.footerStat}><Ionicons name="chatbubble-ellipses" size={14} color="#4f7cff"/><Text style={s.statVal}>{(g.languages || ['Tiếng Việt'])[0]}</Text></View>
                    <Text style={[s.availabilityTxt, { color: isBusy ? '#ef4444' : '#10b981' }]}>
                      {isBusy ? 'Đang bận tour' : 'Trống lịch'}
@@ -269,7 +277,6 @@ export default function GuestExploreScreen() {
                      </TouchableOpacity>
                   </View>
 
-                  {/* THÊM LỌC HDV TRỐNG LỊCH */}
                   <View style={s.switchRow}>
                      <View style={{flex: 1, paddingRight: 10}}>
                         <Text style={s.filterLabelMargin}>Chỉ tìm HDV Trống Lịch</Text>
@@ -291,6 +298,53 @@ export default function GuestExploreScreen() {
                </View>
             </View>
          </View>
+      </Modal>
+
+      {/* MODAL DANH SÁCH ĐÁNH GIÁ CÔNG KHAI */}
+      <Modal visible={showReviewModal} animationType="slide" transparent>
+        <View style={s.modalOverlay}>
+            <View style={s.reviewSheet}>
+                <View style={s.modalHeader}>
+                    <View>
+                        <Text style={s.modalTitle}>Đánh giá cộng đồng</Text>
+                        <Text style={s.modalSub}>{reviewTargetName}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setShowReviewModal(false)}>
+                        <Ionicons name="close-circle" size={28} color="#cbd5e1" />
+                    </TouchableOpacity>
+                </View>
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+                    {publicReviews.length === 0 ? (
+                        <View style={{ alignItems: 'center', marginTop: 40 }}>
+                            <Ionicons name="chatbubbles-outline" size={60} color="#e2e8f0" />
+                            <Text style={{ color: '#64748b', marginTop: 10, fontWeight: '600' }}>Chưa có đánh giá nào cho mục này.</Text>
+                        </View>
+                    ) : (
+                        publicReviews.map(r => (
+                            <View key={r.id} style={s.publicReviewCard}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                                    <Text style={{ fontWeight: '900', color: '#1f2a58', fontSize: 15 }}>{r.guestName || 'Khách hàng ẩn danh'}</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                        <Ionicons name="star" size={14} color="#f59e0b" />
+                                        <Text style={{ fontWeight: '800', color: '#d97706' }}>{r.tourRating || r.overallRating || r.rating || 5}</Text>
+                                    </View>
+                                </View>
+                                <Text style={{ color: '#475569', fontSize: 14, lineHeight: 22, fontStyle: 'italic' }}>"{r.reviewText || r.comment || 'Trải nghiệm tuyệt vời'}"</Text>
+                                <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 8 }}>{new Date(r.createdAt || Date.now()).toLocaleDateString('vi-VN')}</Text>
+                                
+                                {/* HIỂN THỊ PHẢN HỒI TỪ STAFF/ADMIN CHUYÊN NGHIỆP */}
+                                {r.isReplied && r.replyText && (
+                                    <View style={{ marginTop: 12, backgroundColor: '#f0fdf4', padding: 12, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#16a34a' }}>
+                                        <Text style={{ color: '#16a34a', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>Phản hồi từ LocalMate:</Text>
+                                        <Text style={{ color: '#15803d', fontSize: 13, lineHeight: 18 }}>{r.replyText}</Text>
+                                    </View>
+                                )}
+                            </View>
+                        ))
+                    )}
+                </ScrollView>
+            </View>
+        </View>
       </Modal>
     </View>
   );
@@ -325,7 +379,7 @@ const getStyles = (scale: number) => {
     tourMeta: { fontSize: sz(12), color: '#7a8cc2' },
     priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     tourPrice: { fontSize: sz(16), fontWeight: '900', color: '#10b981' },
-    ratingBadge: { flexDirection: 'row', alignItems: 'center', gap: sz(2), backgroundColor: '#fef3c7', paddingHorizontal: sz(6), paddingVertical: sz(2), borderRadius: sz(6) },
+    ratingBadge: { flexDirection: 'row', alignItems: 'center', gap: sz(2), backgroundColor: '#fef3c7', paddingHorizontal: sz(6), paddingVertical: sz(2), borderRadius: sz(6), borderWidth: 1, borderColor: '#fde68a' },
     ratingText: { fontSize: sz(10), fontWeight: '800', color: '#d97706' },
 
     guideCard: { backgroundColor: '#fff', padding: sz(16), borderRadius: sz(20), marginBottom: sz(12), elevation: 3, borderWidth: 1, borderColor: '#e4ebff' },
@@ -344,7 +398,7 @@ const getStyles = (scale: number) => {
     skillTagTxt: { fontSize: sz(11), color: '#64748b', fontWeight: '600' },
 
     guideFooter: { flexDirection: 'row', alignItems: 'center', marginTop: sz(12), paddingTop: sz(12), borderTopWidth: 1, borderTopColor: '#f0f4ff', gap: sz(15) },
-    footerStat: { flexDirection: 'row', alignItems: 'center', gap: sz(4) },
+    footerStat: { flexDirection: 'row', alignItems: 'center', gap: sz(4), backgroundColor: '#f8faff', paddingHorizontal: sz(8), paddingVertical: sz(4), borderRadius: sz(8), borderWidth: 1, borderColor: '#e4ebff' },
     statVal: { fontSize: sz(13), fontWeight: '700', color: '#1f2a58' },
     availabilityTxt: { marginLeft: 'auto', fontSize: sz(12), fontWeight: '800' },
 
@@ -354,8 +408,13 @@ const getStyles = (scale: number) => {
 
     modalOverlay: { flex: 1, backgroundColor: 'rgba(10,18,50,0.6)', justifyContent: 'flex-end' },
     filterSheet: { backgroundColor: '#fff', borderTopLeftRadius: sz(28), borderTopRightRadius: sz(28), padding: sz(20), maxHeight: '90%' },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: sz(20) },
+    reviewSheet: { backgroundColor: '#f8faff', borderTopLeftRadius: sz(28), borderTopRightRadius: sz(28), maxHeight: '90%' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: sz(20), borderBottomWidth: 1, borderBottomColor: '#e4ebff', backgroundColor: '#fff', borderTopLeftRadius: sz(28), borderTopRightRadius: sz(28) },
     modalTitle: { fontSize: sz(18), fontWeight: '900', color: '#1f2a58' },
+    modalSub: { fontSize: sz(13), color: '#64748b', marginTop: sz(2) },
+    
+    publicReviewCard: { backgroundColor: '#fff', padding: sz(16), borderRadius: sz(16), marginBottom: sz(14), borderWidth: 1, borderColor: '#e4ebff', elevation: 1 },
+
     filterBody: { marginBottom: sz(20) },
     filterLabel: { fontSize: sz(15), fontWeight: '800', color: '#1f2a58', marginBottom: sz(12), marginTop: sz(12) },
     filterLabelMargin: { fontSize: sz(15), fontWeight: '800', color: '#1f2a58' },

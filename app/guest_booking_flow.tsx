@@ -1,7 +1,5 @@
 /**
- * app/guest_booking_flow.tsx
- * Xác nhận Thông tin & Dịch vụ thêm (Add-ons)
- * UI: Borderless (Không viền), Nổi khối.
+ * app/guest_booking_flow.tsx - FIX: Đóng gói dữ liệu HDV & Add-ons để Checkout hiển thị đúng
  */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@/constants/storage-helper';
@@ -54,6 +52,28 @@ export default function GuestBookingFlowScreen() {
   const addonTotal = ADD_ONS.filter(a => selectedAddons.includes(a.id)).reduce((sum, a) => sum + a.price, 0);
   const finalTotal = tourPrice + addonTotal;
 
+  // --- HÀM XỬ LÝ CHUYỂN TRANG ĐÃ ĐƯỢC TÁCH RIÊNG ---
+  const handleGoToCheckout = () => {
+    // 1. Lấy toàn bộ Object của Add-ons (gồm Tên và Giá) thay vì chỉ lấy ID
+    const selectedAddonDetails = ADD_ONS.filter(a => selectedAddons.includes(a.id));
+
+    // 2. Chuyển sang trang checkout với dữ liệu đầy đủ
+    router.push({ 
+      pathname: '/guest_checkout', 
+      params: { 
+        tourId, 
+        guideId, 
+        schStart, 
+        schEnd, 
+        guests, 
+        // Gửi chuỗi JSON chứa đầy đủ thông tin dịch vụ thêm
+        addons: JSON.stringify(selectedAddonDetails), 
+        total: finalTotal, 
+        tourName: tour.name 
+      } 
+    });
+  };
+
   return (
     <View style={s.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
@@ -66,8 +86,6 @@ export default function GuestBookingFlowScreen() {
       </View>
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        
-        {/* TÓM TẮT */}
         <View style={s.summaryCard}>
           <Text style={s.summaryTitle}>Đã lựa chọn</Text>
           <View style={s.row}>
@@ -80,11 +98,10 @@ export default function GuestBookingFlowScreen() {
           </View>
           <View style={s.row}>
              <View style={s.iconWrap}><Ionicons name="person" size={16} color="#4f7cff"/></View>
-             <Text style={s.rowTxt}>HDV: {guide.name}</Text>
+             <Text style={s.rowTxt}>HDV: {guide.name || "Hệ thống tự xếp"}</Text>
           </View>
         </View>
 
-        {/* SỐ LƯỢNG KHÁCH */}
         <Text style={s.sectionTitle}>Số lượng hành khách</Text>
         <View style={s.guestCard}>
            <Text style={s.guestLabel}>Người lớn / Trẻ em</Text>
@@ -95,7 +112,6 @@ export default function GuestBookingFlowScreen() {
            </View>
         </View>
 
-        {/* DỊCH VỤ THÊM */}
         <Text style={s.sectionTitle}>Nâng cấp trải nghiệm</Text>
         {ADD_ONS.map(a => (
           <TouchableOpacity key={a.id} style={[s.addonCard, selectedAddons.includes(a.id) && s.addonCardActive]} onPress={() => toggleAddon(a.id)}>
@@ -111,16 +127,13 @@ export default function GuestBookingFlowScreen() {
         ))}
       </ScrollView>
 
-      {/* FLOAT BAR */}
       <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, Math.round(14 * scale)) }]}>
         <View style={{ flex: 1 }}>
           <Text style={{ color: '#7a8cc2', fontSize: Math.round(12 * scale), fontWeight: '600' }}>Tạm tính ({guests} khách)</Text>
           <Text style={{ color: '#10b981', fontSize: Math.round(20 * scale), fontWeight: '900' }}>{finalTotal.toLocaleString('vi-VN')}đ</Text>
         </View>
-        <TouchableOpacity style={s.btn} onPress={() => router.push({ 
-            pathname: '/guest_checkout', 
-            params: { tourId, guideId, schStart, schEnd, guests, addons: JSON.stringify(selectedAddons), total: finalTotal } 
-          })}>
+        {/* SỬ DỤNG HÀM MỚI TẠI ĐÂY */}
+        <TouchableOpacity style={s.btn} onPress={handleGoToCheckout}>
           <Text style={s.btnTxt}>Tới Thanh toán</Text>
           <Ionicons name="arrow-forward" size={16} color="#fff" />
         </TouchableOpacity>
@@ -129,6 +142,7 @@ export default function GuestBookingFlowScreen() {
   );
 }
 
+// ... (Giữ nguyên phần getStyles bên dưới)
 const getStyles = (scale: number) => {
   const sz = (val: number) => Math.round(val * scale);
   return StyleSheet.create({
@@ -137,26 +151,22 @@ const getStyles = (scale: number) => {
     backBtn: { width: sz(40), height: sz(40), borderRadius: sz(14), backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
     title: { fontSize: sz(18), fontWeight: '900', color: '#1f2a58' },
     content: { padding: sz(20), paddingBottom: sz(120) },
-    
     summaryCard: { backgroundColor: '#fff', borderRadius: sz(20), padding: sz(18), elevation: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15, shadowOffset: {width: 0, height: 5}, marginBottom: sz(24) },
     summaryTitle: { fontSize: sz(16), fontWeight: '900', color: '#1f2a58', marginBottom: sz(12) },
     row: { flexDirection: 'row', alignItems: 'center', gap: sz(10), marginBottom: sz(10) },
     iconWrap: { width: sz(32), height: sz(32), borderRadius: sz(10), backgroundColor: '#eaf0ff', alignItems: 'center', justifyContent: 'center' },
     rowTxt: { fontSize: sz(14), color: '#1f2a58', fontWeight: '700', flex: 1 },
-
     guestCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: sz(16), borderRadius: sz(16), marginBottom: sz(24), elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10 },
     guestLabel: { fontSize: sz(15), fontWeight: '800', color: '#1f2a58' },
     counter: { flexDirection: 'row', alignItems: 'center', gap: sz(16) },
     countBtn: { width: sz(36), height: sz(36), borderRadius: sz(10), backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
     countTxt: { fontSize: sz(18), fontWeight: '900', color: '#4f7cff' },
-
     sectionTitle: { fontSize: sz(16), fontWeight: '900', color: '#1f2a58', marginBottom: sz(12) },
     addonCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: sz(16), borderRadius: sz(16), marginBottom: sz(12), elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10 },
     addonCardActive: { backgroundColor: '#4f7cff' },
     addonIconWrap: { width: sz(44), height: sz(44), borderRadius: sz(14), backgroundColor: '#eaf0ff', alignItems: 'center', justifyContent: 'center', marginRight: sz(14) },
     addonName: { fontSize: sz(15), fontWeight: '900', color: '#1f2a58' },
     addonPrice: { fontSize: sz(13), color: '#10b981', fontWeight: '800', marginTop: sz(4) },
-
     bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', paddingHorizontal: sz(20), paddingTop: sz(14), elevation: 15, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 20, shadowOffset: {width: 0, height: -10} },
     btn: { flexDirection: 'row', gap: sz(8), backgroundColor: '#4f7cff', borderRadius: sz(14), paddingHorizontal: sz(24), height: sz(54), alignItems: 'center', justifyContent: 'center' },
     btnTxt: { color: '#fff', fontSize: sz(16), fontWeight: '900' },

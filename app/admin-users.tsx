@@ -1,320 +1,320 @@
 /**
  * app/admin-users.tsx
- * Quản lý Users - Cập nhật UI đồng bộ, ẩn Header đen, thêm Custom Popup Xác nhận
+ * Quản lý Người dùng - Nâng cấp: Full CRUD, Tìm kiếm, Lưới/Danh sách, 
+ * Đổi mật khẩu, Phân quyền Dual Role, Thay đổi hàng loạt.
  */
 import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/constants/storage-helper"; 
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useState, useMemo } from "react";
 import {
-  Modal,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+  Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity,
+  View, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type UserRole = "guest" | "guide" | "admin" | "staff";
-type UserStatus = "active" | "suspended" | "pending";
+type UserStatus = "active" | "suspended";
 
 interface AppUser {
-  id: string;
-  name: string;
-  email: string;
+  id: string; 
+  name: string; 
+  email: string; 
   phone: string;
-  roles: UserRole[];
-  status: UserStatus;
-  createdAt: string;
+  password?: string; 
+  roles: UserRole[]; 
+  activeRole: UserRole;
+  status: UserStatus; 
+  createdAt: string; 
   avatarColor: string;
-  bookings?: number;
 }
 
-const SEED_USERS: AppUser[] = [
-  { id: "acc-guest-1", name: "Nguyễn An", email: "guest1@gmail.com", phone: "0901 234 567", roles: ["guest"], status: "active", createdAt: "10/01/2026", avatarColor: "#4f7cff", bookings: 8 },
-  { id: "acc-guest-3", name: "Lê Thị Cúc", email: "guest3@gmail.com", phone: "0923 456 789", roles: ["guest"], status: "active", createdAt: "12/02/2026", avatarColor: "#f59e0b", bookings: 2 },
-  { id: "acc-guide-1", name: "Trần Minh Khoa", email: "guide1@gmail.com", phone: "0987 654 321", roles: ["guest", "guide"], status: "active", createdAt: "15/01/2026", avatarColor: "#10b981", bookings: 45 },
-  { id: "acc-staff-1", name: "Phạm Hữu Nghĩa", email: "staff1@gmail.com", phone: "0933 111 222", roles: ["staff"], status: "active", createdAt: "01/01/2026", avatarColor: "#8b5cf6", bookings: 0 },
-];
+const ROLES: UserRole[] = ["guest", "guide", "staff", "admin"];
+const AVATAR_COLORS = ['#4f7cff','#10b981','#f59e0b','#8b5cf6','#ef4444'];
 
 export default function AdminUsersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [filterRole, setFilterRole] = useState<UserRole | "all">("all");
-  const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  
+  // Chế độ chọn nhiều
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // Custom Popup State
+  // Modal Sửa/Tạo
+  const [editModal, setEditModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<Partial<AppUser> | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+
+  // Popup thông báo/xác nhận
   const [confirmPopup, setConfirmPopup] = useState<{
-    visible: boolean;
-    type: "suspend" | "activate" | "success" | "error";
-    title: string;
-    message: string;
-    targetUserId?: string;
+    visible: boolean; type: "delete" | "success" | "error"; 
+    title: string; message: string; targetId?: string;
   }>({ visible: false, type: "success", title: "", message: "" });
 
-  useFocusEffect(
-    useCallback(() => {
-      loadUsers();
-    }, [])
-  );
+  useFocusEffect(useCallback(() => { loadUsers(); }, []));
 
   const loadUsers = async () => {
     try {
-      const rawAccounts = await AsyncStorage.getItem("@app_accounts");
-      if (rawAccounts) {
-        setUsers(JSON.parse(rawAccounts));
-      } else {
-        await AsyncStorage.setItem("@app_accounts", JSON.stringify(SEED_USERS));
-        setUsers(SEED_USERS);
-      }
-    } catch (error) {
-      console.error(error);
+      const raw = await AsyncStorage.getItem("@app_accounts");
+      if (raw) setUsers(JSON.parse(raw));
+    } catch (e) { setUsers([]); }
+  };
+
+  const saveUser = async () => {
+    if (!editingUser?.name || !editingUser?.email) {
+      Alert.alert("Lỗi", "Vui lòng nhập tên và email.");
+      return;
     }
+    
+    let updated = [...users];
+    const isNew = !users.find(u => u.id === editingUser.id);
+    
+    // Logic: Mọi tài khoản đều có role Guest mặc định, activeRole phải thuộc danh sách roles
+    const finalRoles = editingUser.roles || ["guest"];
+    if (!finalRoles.includes("guest")) finalRoles.push("guest");
+    const finalActiveRole = (editingUser.activeRole && finalRoles.includes(editingUser.activeRole)) 
+      ? editingUser.activeRole 
+      : finalRoles[0];
+
+    const userData = {
+      ...editingUser,
+      roles: finalRoles,
+      activeRole: finalActiveRole,
+      password: newPassword || editingUser.password || "123456", // Mặc định 123456 nếu tạo mới
+      createdAt: editingUser.createdAt || new Date().toLocaleDateString('vi-VN'),
+      avatarColor: editingUser.avatarColor || AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
+      status: editingUser.status || "active"
+    } as AppUser;
+
+    if (isNew) updated.unshift(userData);
+    else updated = updated.map(u => u.id === editingUser.id ? userData : u);
+
+    await AsyncStorage.setItem("@app_accounts", JSON.stringify(updated));
+    setUsers(updated);
+    setEditModal(false);
+    setNewPassword("");
+    setConfirmPopup({ visible: true, type: "success", title: "Thành công", message: "Đã cập nhật thông tin tài khoản." });
   };
 
-  const promptToggleStatus = (user: AppUser) => {
-    const isSuspending = user.status === "active";
-    setConfirmPopup({
-      visible: true,
-      type: isSuspending ? "suspend" : "activate",
-      title: isSuspending ? "Khóa tài khoản" : "Mở khóa tài khoản",
-      message: isSuspending 
-        ? `Bạn có chắc chắn muốn khóa tài khoản của "${user.name}"? Người này sẽ không thể đăng nhập vào app.` 
-        : `Cho phép tài khoản "${user.name}" hoạt động trở lại?`,
-      targetUserId: user.id,
-    });
-  };
-
-  const executeToggleStatus = async () => {
-    if (!confirmPopup.targetUserId) return;
+  // FIX LỖI: Hàm xóa user chính xác
+  const deleteUser = async () => {
+    const idToDelete = confirmPopup.targetId;
+    if (!idToDelete) return;
+    
     try {
-      const rawAccounts = await AsyncStorage.getItem("@app_accounts");
-      if (rawAccounts) {
-        let accounts = JSON.parse(rawAccounts);
-        const index = accounts.findIndex((a: any) => a.id === confirmPopup.targetUserId);
-        
-        if (index !== -1) {
-          const newStatus = accounts[index].status === "active" ? "suspended" : "active";
-          accounts[index].status = newStatus;
-          
-          await AsyncStorage.setItem("@app_accounts", JSON.stringify(accounts));
-          setUsers(accounts);
-          
-          if (selectedUser && selectedUser.id === confirmPopup.targetUserId) {
-            setSelectedUser({ ...selectedUser, status: newStatus });
-          }
-          
-          setConfirmPopup({ 
-            visible: true, type: "success", title: "Thành công", 
-            message: `Đã ${newStatus === "active" ? "mở khóa" : "khóa"} tài khoản thành công.` 
-          });
-        }
-      }
-    } catch (error) {
-      setConfirmPopup({ visible: true, type: "error", title: "Lỗi", message: "Không thể cập nhật trạng thái." });
+      const updated = users.filter(u => u.id !== idToDelete);
+      await AsyncStorage.setItem("@app_accounts", JSON.stringify(updated));
+      setUsers(updated);
+      setConfirmPopup({ visible: true, type: "success", title: "Đã xóa", message: "Tài khoản đã được gỡ khỏi hệ thống." });
+    } catch (e) {
+      setConfirmPopup({ visible: true, type: "error", title: "Lỗi", message: "Không thể xóa tài khoản này." });
     }
   };
 
-  const filteredUsers = users.filter((u) => {
-    if (filterRole === "all") return true;
-    return u.roles.includes(filterRole);
-  });
+  const handleBulkStatusChange = async (newStatus: UserStatus) => {
+    const updated = users.map(u => selectedIds.includes(u.id) ? { ...u, status: newStatus } : u);
+    await AsyncStorage.setItem("@app_accounts", JSON.stringify(updated));
+    setUsers(updated);
+    setSelectedIds([]);
+    setIsSelectionMode(false);
+    setConfirmPopup({ visible: true, type: "success", title: "Thành công", message: `Đã cập nhật trạng thái cho ${selectedIds.length} tài khoản.` });
+  };
 
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case "guest": return "Khách hàng";
-      case "guide": return "Hướng dẫn viên";
-      case "admin": return "Quản trị viên";
-      case "staff": return "Nhân viên";
-      default: return role;
-    }
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => {
+      const matchSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.email.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchRole = filterRole === "all" || u.roles.includes(filterRole);
+      return matchSearch && matchRole;
+    });
+  }, [users, searchQuery, filterRole]);
+
+  const renderUserItem = ({ item: user }: { item: AppUser }) => {
+    const isSelected = selectedIds.includes(user.id);
+    return (
+      <TouchableOpacity 
+        style={[
+            viewMode === "list" ? styles.listCard : styles.gridCard,
+            isSelected && { borderColor: '#4f7cff', borderWidth: 2 }
+        ]} 
+        onPress={() => isSelectionMode ? toggleSelect(user.id) : (setEditingUser(user), setEditModal(true))}
+        onLongPress={() => { setIsSelectionMode(true); toggleSelect(user.id); }}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.avatar, { backgroundColor: user.status === "suspended" ? "#cbd5e1" : user.avatarColor }]}>
+          <Text style={styles.avatarTxt}>{user.name.charAt(0).toUpperCase()}</Text>
+          {isSelected && <View style={styles.checkIcon}><Ionicons name="checkmark" size={12} color="#fff" /></View>}
+        </View>
+        <View style={styles.userMainInfo}>
+          <Text style={styles.userName} numberOfLines={1}>{user.name}</Text>
+          <Text style={styles.userEmail} numberOfLines={1}>{user.email}</Text>
+          <View style={styles.badgeRow}>
+             {user.roles.map(r => (
+               <View key={r} style={[styles.miniBadge, r === 'guide' && {backgroundColor: '#dcfce7'}]}>
+                 <Text style={[styles.miniBadgeTxt, r === 'guide' && {color: '#16a34a'}]}>{r}</Text>
+               </View>
+             ))}
+          </View>
+        </View>
+        {viewMode === "list" && !isSelectionMode && (
+          <Ionicons name={user.status === "active" ? "checkmark-circle" : "lock-closed"} size={20} color={user.status === "active" ? "#10b981" : "#ef4444"} />
+        )}
+      </TouchableOpacity>
+    );
   };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f3f7ff" />
-      
-      {/* Ẩn Header Đen */}
+      <StatusBar barStyle="dark-content" />
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Header */}
+      {/* Header với nút Thêm (+) */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.replace("/admin-home")}>
           <Ionicons name="chevron-back" size={24} color="#1f2a58" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Quản lý Người dùng</Text>
-        <View style={{ width: 44 }} />
+        <Text style={styles.headerTitle}>{isSelectionMode ? `Đã chọn ${selectedIds.length}` : "Người dùng"}</Text>
+        
+        <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.iconActionBtn} onPress={() => { setEditingUser({ id: `acc-${Date.now()}`, roles: ["guest"], status: "active" }); setEditModal(true); }}>
+                <Ionicons name="add-circle" size={28} color="#4f7cff" />
+            </TouchableOpacity>
+            {(filterRole === "all" || filterRole === "guide") && (
+                <TouchableOpacity style={styles.guideDetailBtn} onPress={() => router.push("/admin-guide-management")}>
+                    <Ionicons name="shield-checkmark" size={20} color="#4f7cff" />
+                </TouchableOpacity>
+            )}
+        </View>
       </View>
 
-      {/* Bộ lọc */}
-      <View style={styles.tabContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
-          {(["all", "guest", "guide", "staff"] as const).map((role) => (
-            <TouchableOpacity
-              key={role}
-              style={[styles.tabBtn, filterRole === role && styles.tabBtnActive]}
-              onPress={() => setFilterRole(role)}
-            >
-              <Text style={[styles.tabTxt, filterRole === role && styles.tabTxtActive]}>
-                {role === "all" ? "Tất cả" : getRoleLabel(role)}
-              </Text>
+      {/* Bulk Actions (Chỉnh sửa hàng loạt) */}
+      {isSelectionMode && (
+        <View style={styles.bulkBar}>
+            <TouchableOpacity onPress={() => handleBulkStatusChange("active")} style={styles.bulkBtn}><Ionicons name="lock-open" size={16} color="#10b981"/><Text style={{color:'#10b981', fontWeight:'700', fontSize:12}}>Mở</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => handleBulkStatusChange("suspended")} style={styles.bulkBtn}><Ionicons name="lock-closed" size={16} color="#ef4444"/><Text style={{color:'#ef4444', fontWeight:'700', fontSize:12}}>Khóa</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => {setIsSelectionMode(false); setSelectedIds([]);}} style={styles.bulkBtn}><Text style={{fontSize:12, fontWeight:'600'}}>Hủy</Text></TouchableOpacity>
+        </View>
+      )}
+
+      {/* Search & View Toggle */}
+      <View style={styles.searchBarRow}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={18} color="#94a8d8" />
+          <TextInput style={styles.searchInput} placeholder="Tìm tên hoặc email..." value={searchQuery} onChangeText={setSearchQuery} />
+        </View>
+        <TouchableOpacity style={styles.viewToggle} onPress={() => setViewMode(v => v === "list" ? "grid" : "list")}>
+          <Ionicons name={viewMode === "list" ? "grid-outline" : "list-outline"} size={22} color="#1f2a58" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Filters */}
+      <View style={styles.filterRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}>
+          {(["all", ...ROLES] as const).map(r => (
+            <TouchableOpacity key={r} style={[styles.filterChip, filterRole === r && styles.filterChipActive]} onPress={() => setFilterRole(r)}>
+              <Text style={[styles.filterTxt, filterRole === r && styles.filterTxtActive]}>{r === "all" ? "Tất cả" : r.toUpperCase()}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={styles.listContent}>
-        {filteredUsers.map((user) => (
-          <TouchableOpacity
-            key={user.id}
-            style={styles.userCard}
-            onPress={() => {
-              setSelectedUser(user);
-              setModalVisible(true);
-            }}
-          >
-            <View style={[styles.avatar, { backgroundColor: user.status === "suspended" ? "#f1f5f9" : user.avatarColor }]}>
-              <Text style={[styles.avatarTxt, user.status === "suspended" && { color: "#94a3b8" }]}>
-                {user.name.charAt(0).toUpperCase()}
-              </Text>
+      <FlatList
+        data={filteredUsers}
+        key={viewMode}
+        numColumns={viewMode === "list" ? 1 : 2}
+        keyExtractor={item => item.id}
+        renderItem={renderUserItem}
+        contentContainerStyle={styles.listContainer}
+        ListEmptyComponent={<Text style={styles.emptyTxt}>Không có dữ liệu người dùng.</Text>}
+      />
+
+      {/* Modal CRUD & Đổi mật khẩu */}
+      <Modal visible={editModal} animationType="slide" transparent>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{users.find(u=>u.id === editingUser?.id) ? "Chi tiết tài khoản" : "Tạo tài khoản mới"}</Text>
+              <TouchableOpacity onPress={() => setEditModal(false)}><Ionicons name="close" size={24} color="#1f2a58" /></TouchableOpacity>
             </View>
-            <View style={styles.userInfo}>
-              <Text style={[styles.userName, user.status === "suspended" && { color: "#94a3b8", textDecorationLine: "line-through" }]}>
-                {user.name}
-              </Text>
-              <Text style={styles.userEmail}>{user.email}</Text>
-            </View>
-            <View style={styles.statusCol}>
-              {user.status === "suspended" ? (
-                <Ionicons name="lock-closed" size={24} color="#ef4444" />
-              ) : (
-                <Ionicons name="checkmark-circle" size={24} color="#10b981" />
+
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              <Text style={styles.inputLabel}>Họ và tên</Text>
+              <TextInput style={styles.input} value={editingUser?.name} onChangeText={t => setEditingUser(prev => ({...prev!, name: t}))} />
+              
+              <Text style={styles.inputLabel}>Email</Text>
+              <TextInput style={styles.input} value={editingUser?.email} onChangeText={t => setEditingUser(prev => ({...prev!, email: t}))} keyboardType="email-address" autoCapitalize="none" />
+              
+              <Text style={styles.inputLabel}>Số điện thoại</Text>
+              <TextInput style={styles.input} value={editingUser?.phone} onChangeText={t => setEditingUser(prev => ({...prev!, phone: t}))} keyboardType="phone-pad" />
+
+              <View style={styles.pwdSection}>
+                <Text style={styles.inputLabel}>Đổi mật khẩu mới</Text>
+                <TextInput style={[styles.input, {borderColor: '#f59e0b'}]} value={newPassword} onChangeText={setNewPassword} placeholder="Nhập để đổi hoặc để trống" secureTextEntry />
+              </View>
+
+              <Text style={styles.inputLabel}>Quyền hạn (Dual Role)</Text>
+              <View style={styles.rolePicker}>
+                {ROLES.map(r => {
+                  const hasRole = editingUser?.roles?.includes(r);
+                  return (
+                    <TouchableOpacity key={r} style={[styles.roleBtn, hasRole && styles.roleBtnActive]} 
+                        onPress={() => {
+                            const current = editingUser?.roles || [];
+                            const next = hasRole ? current.filter(x => x !== r) : [...current, r];
+                            if (next.length > 0) setEditingUser(prev => ({...prev!, roles: next}));
+                        }}>
+                      <Text style={[styles.roleTxt, hasRole && styles.roleTxtActive]}>{r.toUpperCase()}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.inputLabel}>Vai trò đăng nhập (Role Mới)</Text>
+              <View style={styles.rolePicker}>
+                {editingUser?.roles?.map(r => (
+                  <TouchableOpacity key={r} style={[styles.roleBtn, editingUser.activeRole === r && {backgroundColor: '#4f7cff', borderColor:'#4f7cff'}]} 
+                    onPress={() => setEditingUser(prev => ({...prev!, activeRole: r}))}>
+                    <Text style={[styles.roleTxt, editingUser.activeRole === r && {color: '#fff'}]}>{r.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity style={styles.saveBtn} onPress={saveUser}><Text style={styles.saveBtnTxt}>Lưu thông tin</Text></TouchableOpacity>
+              
+              {editingUser?.id && (
+                <TouchableOpacity style={styles.deleteLink} onPress={() => setConfirmPopup({ visible: true, type: "delete", title: "Xác nhận xóa", message: "User này sẽ bị xóa vĩnh viễn khỏi Local Storage.", targetId: editingUser.id })}>
+                  <Text style={styles.deleteLinkTxt}>Xóa tài khoản</Text>
+                </TouchableOpacity>
               )}
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Modal Chi tiết User */}
-      <Modal visible={modalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
-            {selectedUser && (
-              <>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Chi tiết Tài khoản</Text>
-                  <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
-                    <Ionicons name="close" size={20} color="#1f2a58" />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.modalBody}>
-                  <View style={styles.detailAvatarRow}>
-                    <View style={[styles.detailAvatar, { backgroundColor: selectedUser.status === "suspended" ? "#f1f5f9" : selectedUser.avatarColor }]}>
-                      <Text style={styles.detailAvatarTxt}>{selectedUser.name.charAt(0).toUpperCase()}</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.detailName}>{selectedUser.name}</Text>
-                      <View style={styles.detailBadgeRow}>
-                        <View style={[styles.roleBadge, { backgroundColor: selectedUser.status === "active" ? "#dcfce7" : "#fee2e2" }]}>
-                          <Text style={[styles.roleBadgeTxt, { color: selectedUser.status === "active" ? "#16a34a" : "#dc2626" }]}>
-                            {selectedUser.status === "active" ? "Đang hoạt động" : "Đã bị khóa"}
-                          </Text>
-                        </View>
-                        {selectedUser.roles.map(r => (
-                          <View key={r} style={[styles.roleBadge, { backgroundColor: "#eaf0ff" }]}>
-                            <Text style={[styles.roleBadgeTxt, { color: "#4f7cff" }]}>{getRoleLabel(r)}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}><Ionicons name="mail" size={18} color="#4f7cff" /></View>
-                    <Text style={styles.detailLabel}>Email</Text>
-                    <Text style={styles.detailValue}>{selectedUser.email}</Text>
-                  </View>
-                  
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}><Ionicons name="call" size={18} color="#4f7cff" /></View>
-                    <Text style={styles.detailLabel}>Số điện thoại</Text>
-                    <Text style={styles.detailValue}>{selectedUser.phone}</Text>
-                  </View>
-
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}><Ionicons name="calendar" size={18} color="#4f7cff" /></View>
-                    <Text style={styles.detailLabel}>Ngày tham gia</Text>
-                    <Text style={styles.detailValue}>{selectedUser.createdAt}</Text>
-                  </View>
-
-                  <TouchableOpacity 
-                    style={[styles.suspendBtn, selectedUser.status === "suspended" && styles.activateBtn]} 
-                    onPress={() => promptToggleStatus(selectedUser)}
-                  >
-                    <Ionicons name={selectedUser.status === "active" ? "lock-closed" : "lock-open"} size={20} color="#fff" />
-                    <Text style={styles.suspendBtnTxt}>
-                      {selectedUser.status === "active" ? "Khóa tài khoản này" : "Mở khóa tài khoản"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* CUSTOM POPUP XÁC NHẬN - CHUẨN UI */}
+      {/* Popups */}
       <Modal visible={confirmPopup.visible} transparent animationType="fade">
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmBox}>
-            <View style={[
-              styles.confirmIconWrap, 
-              confirmPopup.type === "suspend" && { backgroundColor: "#fee2e2" },
-              confirmPopup.type === "activate" && { backgroundColor: "#dcfce7" },
-              confirmPopup.type === "success" && { backgroundColor: "#eaf0ff" },
-              confirmPopup.type === "error" && { backgroundColor: "#fee2e2" }
-            ]}>
-              <Ionicons 
-                name={
-                  confirmPopup.type === "suspend" ? "lock-closed" : 
-                  confirmPopup.type === "activate" ? "lock-open" : 
-                  confirmPopup.type === "success" ? "checkmark-circle" : "warning"
-                } 
-                size={32} 
-                color={
-                  confirmPopup.type === "suspend" || confirmPopup.type === "error" ? "#ef4444" : 
-                  confirmPopup.type === "activate" ? "#10b981" : "#4f7cff"
-                } 
-              />
-            </View>
-            
+            <Ionicons name={confirmPopup.type === "delete" ? "trash" : "checkmark-circle"} size={50} color={confirmPopup.type === "delete" ? "#ef4444" : "#10b981"} />
             <Text style={styles.confirmTitle}>{confirmPopup.title}</Text>
             <Text style={styles.confirmMessage}>{confirmPopup.message}</Text>
-
-            {confirmPopup.type === "success" || confirmPopup.type === "error" ? (
-              <TouchableOpacity style={styles.confirmSingleBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
-                <Text style={styles.confirmSingleBtnTxt}>Đóng</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.confirmActionRow}>
-                <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
-                  <Text style={styles.confirmCancelBtnTxt}>Hủy bỏ</Text>
+            <View style={styles.confirmBtnRow}>
+              <TouchableOpacity style={styles.cBtnBack} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}><Text>Đóng</Text></TouchableOpacity>
+              {confirmPopup.type === "delete" && (
+                <TouchableOpacity style={styles.cBtnRed} onPress={async () => { await deleteUser(); setEditModal(false); }}>
+                    <Text style={{color:'#fff', fontWeight:'700'}}>Xóa ngay</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.confirmSubmitBtn, confirmPopup.type === "suspend" ? { backgroundColor: "#ef4444" } : { backgroundColor: "#10b981" }]} 
-                  onPress={() => executeToggleStatus()}
-                >
-                  <Text style={styles.confirmSubmitBtnTxt}>{confirmPopup.type === "suspend" ? "Khóa ngay" : "Mở khóa"}</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+              )}
+            </View>
           </View>
         </View>
       </Modal>
@@ -326,59 +326,66 @@ export default function AdminUsersScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f7ff" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
-  backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, backgroundColor: "#fff", borderBottomWidth:1, borderBottomColor:'#e4ebff' },
+  backBtn: { width: 40, height: 40, borderRadius: 10, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  
-  tabContainer: { paddingVertical: 10, backgroundColor: "#f3f7ff" },
-  tabScroll: { paddingHorizontal: 16, gap: 10 },
-  tabBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" },
-  tabBtnActive: { backgroundColor: "#4f7cff", borderColor: "#4f7cff" },
-  tabTxt: { color: "#7a8cc2", fontWeight: "600", fontSize: 14 },
-  tabTxtActive: { color: "#fff" },
-  
-  listContent: { padding: 16, paddingBottom: 100, gap: 12 },
-  userCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", padding: 16, borderRadius: 16, borderWidth: 1, borderColor: "#e4ebff", elevation: 2, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10 },
-  avatar: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", marginRight: 14 },
-  avatarTxt: { color: "#fff", fontWeight: "800", fontSize: 20 },
-  userInfo: { flex: 1 },
-  userName: { fontSize: 16, fontWeight: "700", color: "#1f2a58", marginBottom: 2 },
-  userEmail: { fontSize: 13, color: "#7a8cc2", marginBottom: 6 },
-  statusCol: { alignItems: "center", justifyContent: "center", paddingLeft: 10 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconActionBtn: { padding: 4 },
+  guideDetailBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
 
-  // Modal Chi tiết
-  modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "flex-end" },
-  modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, minHeight: "60%" },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58" },
-  closeBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  modalBody: { padding: 20 },
-  detailAvatarRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 20 },
-  detailAvatar: { width: 64, height: 64, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  detailAvatarTxt: { color: "#fff", fontWeight: "800", fontSize: 28 },
-  detailName: { color: "#1f2a58", fontWeight: "800", fontSize: 20, marginBottom: 6 },
-  detailBadgeRow: { flexDirection: "row", gap: 6 },
-  roleBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  roleBadgeTxt: { fontSize: 11, fontWeight: "700" },
-  detailRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
-  detailIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#eaf0ff", alignItems: "center", justifyContent: "center" },
-  detailLabel: { color: "#7a8cc2", fontSize: 14, width: 120 },
-  detailValue: { flex: 1, color: "#1f2a58", fontWeight: "700", fontSize: 14, textAlign: "right" },
-  suspendBtn: { marginTop: 30, backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  activateBtn: { backgroundColor: "#10b981" },
-  suspendBtnTxt: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  bulkBar: { flexDirection: 'row', backgroundColor: '#fff', padding: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: '#e4ebff' },
+  bulkBtn: { flex: 1, flexDirection: 'row', alignItems:'center', justifyContent:'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e4ebff' },
 
-  // Custom Confirm Popup
-  confirmOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
-  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20 },
-  confirmIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  confirmTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58", marginBottom: 8, textAlign: "center" },
-  confirmMessage: { fontSize: 14, color: "#7a8cc2", textAlign: "center", lineHeight: 22, marginBottom: 24 },
-  confirmActionRow: { flexDirection: "row", gap: 12, width: "100%" },
-  confirmCancelBtn: { flex: 1, height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
-  confirmCancelBtnTxt: { color: "#7a8cc2", fontSize: 15, fontWeight: "700" },
-  confirmSubmitBtn: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  confirmSubmitBtnTxt: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  confirmSingleBtn: { width: "100%", height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center" },
-  confirmSingleBtnTxt: { color: "#1f2a58", fontSize: 15, fontWeight: "800" },
+  searchBarRow: { flexDirection: "row", padding: 16, gap: 10 },
+  searchBox: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 12, height: 46, borderWidth: 1, borderColor: "#e4ebff" },
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 14 },
+  viewToggle: { width: 46, height: 46, backgroundColor: "#fff", borderRadius: 12, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
+
+  filterRow: { paddingBottom: 12 },
+  filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" },
+  filterChipActive: { backgroundColor: "#1f2a58", borderColor: "#1f2a58" },
+  filterTxt: { color: "#7a8cc2", fontWeight: "700", fontSize: 11 },
+  filterTxtActive: { color: "#fff" },
+
+  listContainer: { padding: 16, paddingBottom: 120 },
+  listCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", padding: 16, borderRadius: 16, marginBottom: 12, elevation: 2, borderWidth: 1, borderColor: '#e4ebff' },
+  gridCard: { width: "48%", backgroundColor: "#fff", padding: 16, borderRadius: 16, marginBottom: "4%", marginHorizontal: "1%", alignItems: "center", elevation: 2, borderWidth: 1, borderColor: '#e4ebff' },
+  avatar: { width: 50, height: 50, borderRadius: 15, alignItems: "center", justifyContent: "center", position: 'relative' },
+  avatarTxt: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  checkIcon: { position: 'absolute', top: -5, right: -5, backgroundColor: '#4f7cff', width:20, height:20, borderRadius: 10, borderWidth: 2, borderColor: '#fff', alignItems:'center', justifyContent:'center' },
+  userMainInfo: { flex: 1, marginHorizontal: 12 },
+  userName: { fontSize: 15, fontWeight: "700", color: "#1f2a58" },
+  userEmail: { fontSize: 11, color: "#7a8cc2", marginTop: 2 },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
+  miniBadge: { backgroundColor: "#f1f5f9", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  miniBadgeTxt: { fontSize: 8, color: "#64748b", fontWeight: "800" },
+
+  emptyTxt: { textAlign: "center", color: "#94a3b8", marginTop: 40 },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, height: "90%", padding: 20 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  modalTitle: { fontSize: 20, fontWeight: "800", color: "#1f2a58" },
+  modalBody: { flex: 1 },
+  inputLabel: { fontSize: 12, fontWeight: "800", color: "#94a8d8", marginBottom: 8, marginTop: 16, textTransform: 'uppercase' },
+  input: { backgroundColor: "#f8faff", borderWidth: 1, borderColor: "#e4ebff", borderRadius: 12, padding: 14, fontSize: 15, color: "#1f2a58" },
+  pwdSection: { padding: 12, backgroundColor: '#fffbeb', borderRadius: 12, marginTop: 10, borderWidth: 1, borderColor: '#fef3c7' },
+  rolePicker: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  roleBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: "#e4ebff", backgroundColor: '#fff' },
+  roleBtnActive: { backgroundColor: "#1f2a58", borderColor: "#1f2a58" },
+  roleTxt: { fontSize: 11, fontWeight: "700", color: "#64748b" },
+  roleTxtActive: { color: "#fff" },
+  saveBtn: { backgroundColor: "#4f7cff", paddingVertical: 16, borderRadius: 14, alignItems: "center", marginTop: 30, elevation: 3 },
+  saveBtnTxt: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  deleteLink: { marginTop: 20, padding: 10, alignItems: "center" },
+  deleteLinkTxt: { color: "#ef4444", fontWeight: "700", fontSize: 13 },
+
+  confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
+  confirmBox: { backgroundColor: "#fff", borderRadius: 24, padding: 24, alignItems: "center", width: "100%" },
+  confirmTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58", marginTop: 16 },
+  confirmMessage: { textAlign: "center", color: "#64748b", marginTop: 8, marginBottom: 24, fontSize: 14 },
+  confirmBtnRow: { flexDirection: "row", gap: 10, width: '100%' },
+  cBtnBack: { flex: 1, padding: 14, alignItems: "center", borderRadius: 12, backgroundColor: "#f1f5f9" },
+  cBtnRed: { flex: 1, padding: 14, alignItems: "center", borderRadius: 12, backgroundColor: "#ef4444" },
+  cBtnBlue: { flex: 1, padding: 14, alignItems: "center", borderRadius: 12, backgroundColor: "#4f7cff" },
 });

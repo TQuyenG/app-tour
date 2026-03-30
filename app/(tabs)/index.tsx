@@ -1,10 +1,11 @@
 /**
  * app/(tabs)/index.tsx
- * Trang chủ Guest - ĐÃ FIX: Lấy tên chính xác từ Session Đăng nhập (@app_current_user)
+ * Trang chủ Guest - GIỮ NGUYÊN UI GỐC
+ * ĐÃ FIX: Tắt thanh bar đen & Load ảnh thật của Tour/HDV từ Admin/Profile
  */
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, Stack } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Dimensions, Image, ScrollView, StatusBar, StyleSheet,
@@ -24,7 +25,7 @@ interface AppTour {
 interface AppGuide {
   id: string; name: string; location: string; experience: string;
   skills: string[]; rating: number; tours: number; match: number;
-  status?: 'active' | 'busy' | 'inactive'; avatar?: string;
+  status?: 'active' | 'busy' | 'inactive'; avatar?: string; avatarUrl?: string;
 }
 
 const TOUR_IMAGES = [
@@ -33,15 +34,6 @@ const TOUR_IMAGES = [
   'https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=400&q=80',
   'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80',
   'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=400&q=80',
-];
-
-const GUIDE_AVATARS = [
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&q=80',
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&q=80',
-  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&q=80',
-  'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&q=80',
 ];
 
 const BANNERS = [
@@ -96,7 +88,6 @@ export default function HomeScreen() {
     setLoading(true);
     
     const loadAll = async () => {
-      // Ép lấy dữ liệu từ Session Đăng nhập
       const rawUser = await AsyncStorage.getItem('@app_current_user');
       const sessionUser = rawUser ? JSON.parse(rawUser) : null;
 
@@ -105,15 +96,17 @@ export default function HomeScreen() {
       if (rawTours) loadedTours = JSON.parse(rawTours);
       
       let loadedGuides = STATIC_GUIDES as any[];
+      const rawGuides = await AsyncStorage.getItem('@app_guides');
+      if (rawGuides) loadedGuides = JSON.parse(rawGuides);
       
       const favRaw = await AsyncStorage.getItem('@guest_favorites');
 
       if (!active) return;
       
+      // Không ghi đè t.image nếu nó đã có (từ Admin tạo)
       setTours(loadedTours.map((t, i) => ({ ...t, image: t.image || TOUR_IMAGES[i % TOUR_IMAGES.length] })));
       setGuides(loadedGuides);
       
-      // Lấy thẳng Tên từ tài khoản đăng nhập (Chắc chắn 100% đúng)
       setGuestName((sessionUser?.name || 'bạn').trim().split(' ').pop() || 'bạn');
       
       if (favRaw) setFavorites(new Set(JSON.parse(favRaw)));
@@ -186,7 +179,10 @@ export default function HomeScreen() {
 
   return (
     <ScrollView style={s.screen} contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
-      <StatusBar barStyle="light-content" backgroundColor="#1a3fb0" />
+      <StatusBar barStyle="light-content" backgroundColor="#1a3fb0" translucent />
+      
+      {/* TRIỆT TIÊU THANH BAR ĐEN */}
+      <Stack.Screen options={{ headerShown: false }} />
       
       <View style={[s.header, { paddingTop: insets.top + 12 }]}>
         <View style={s.headerTop}>
@@ -271,7 +267,7 @@ export default function HomeScreen() {
         {/* QUICK ACTIONS */}
         <View style={s.quickRow}>
           {QUICK_ACTIONS.map(q => (
-            <TouchableOpacity key={q.label} style={[s.quickItem, { backgroundColor: q.bg }]} activeOpacity={0.8}>
+            <TouchableOpacity key={q.label} style={[s.quickItem, { backgroundColor: q.bg }]} activeOpacity={0.8} onPress={() => { setSelectedCategory(q.label); setShowFilters(true); }}>
               <MaterialCommunityIcons name={q.icon} size={24} color={q.color} />
               <Text style={[s.quickTxt, { color: q.color }]}>{q.label}</Text>
             </TouchableOpacity>
@@ -301,6 +297,7 @@ export default function HomeScreen() {
               {featuredTours.map((t) => (
                 <TouchableOpacity key={t.id} style={s.featCard} onPress={() => router.push({ pathname: '/tour/[id]', params: { id: t.id } })}>
                   <View style={s.featImgWrap}>
+                    {/* LẤY ẢNH TỪ DỮ LIỆU THẬT */}
                     <Image source={{ uri: t.image || TOUR_IMAGES[0] }} style={s.featImg} resizeMode="cover" />
                     <View style={s.featRating}><Ionicons name="star" size={11} color="#fbbf24" /><Text style={s.featRatingTxt}>{(t.rating || 0).toFixed(1)}</Text></View>
                     <TouchableOpacity style={s.featFav} onPress={() => toggleFav(t.id)}>
@@ -323,27 +320,30 @@ export default function HomeScreen() {
         <View style={s.sectionHeader}>
            <Text style={s.sectionTitle}>Hướng dẫn viên đề xuất</Text>
         </View>
-        {guides.slice(0, 5).map((g) => (
-          <TouchableOpacity key={g.id} style={s.guideCard} onPress={() => router.push({ pathname: '/public-guide-profile', params: { id: g.id } })}>
-            <Image source={{ uri: g.avatar }} style={s.guideAvatarImg} />
-            <View style={s.guideInfo}>
-              <Text style={s.guideName}>{g.name}</Text>
-              <View style={s.guideMetaRow}><Ionicons name="location-outline" size={11} color="#7a8cc2" /><Text style={s.guideMetaTxt}>{g.location} · {g.experience}</Text></View>
-              <View style={s.guideFooter}>
-                 <Ionicons name="star" size={12} color="#f59e0b" />
-                 <Text style={s.guideRatingTxt}>{(g.rating || 0).toFixed(1)}</Text>
-                 <Text style={s.guideMetaTxt}> ({g.tours || 0} tour)</Text>
+        <View style={{ paddingHorizontal: Math.round(16 * scale) }}>
+          {guides.slice(0, 5).map((g) => (
+            <TouchableOpacity key={g.id} style={s.guideCard} onPress={() => router.push({ pathname: '/public-guide-profile', params: { id: g.id } } as any)}>
+              {/* LẤY AVATAR THẬT TỪ PROFILE HDV */}
+              <Image source={{ uri: g.avatarUrl || g.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' }} style={s.guideAvatarImg} />
+              <View style={s.guideInfo}>
+                <Text style={s.guideName}>{g.name}</Text>
+                <View style={s.guideMetaRow}><Ionicons name="location-outline" size={11} color="#7a8cc2" /><Text style={s.guideMetaTxt}>{g.location} · {g.experience}</Text></View>
+                <View style={s.guideFooter}>
+                   <Ionicons name="star" size={12} color="#f59e0b" />
+                   <Text style={s.guideRatingTxt}>{(g.rating || 5.0).toFixed(1)}</Text>
+                   <Text style={s.guideMetaTxt}> ({g.tours || 0} tour)</Text>
+                </View>
               </View>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />
-          </TouchableOpacity>
-        ))}
+              <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     </ScrollView>
   );
 }
 
-// Responsive Styles
+// Responsive Styles - Giữ nguyên của bạn
 const getStyles = (scale: number) => {
   const sz = (val: number) => Math.round(val * scale);
   return StyleSheet.create({
@@ -395,8 +395,9 @@ const getStyles = (scale: number) => {
     trustLabel: { color: '#1f2a58', fontWeight: '700', fontSize: sz(11), marginTop: sz(2) },
     trustSub: { color: '#7a8cc2', fontSize: sz(9), marginTop: sz(2), textAlign: 'center' },
 
-    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: sz(6), marginTop: sz(10), marginBottom: sz(12) },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: sz(6), marginTop: sz(10), marginBottom: sz(12) },
     sectionTitle: { color: '#1f2a58', fontSize: sz(18), fontWeight: '900' },
+    seeAll: { fontSize: sz(13), fontWeight: '700', color: '#4f7cff' },
 
     featRow: { gap: sz(12), paddingBottom: sz(10) },
     featCard: { width: sz(200), backgroundColor: '#fff', borderRadius: sz(18), overflow: 'hidden', borderWidth: 1, borderColor: '#e4ebff' },
@@ -420,5 +421,8 @@ const getStyles = (scale: number) => {
     guideMetaTxt: { color: '#7a8cc2', fontSize: sz(11) },
     guideFooter: { flexDirection: 'row', alignItems: 'center', marginTop: sz(4) },
     guideRatingTxt: { color: '#f59e0b', fontWeight: '700', fontSize: sz(11), marginLeft: sz(3) },
+    guideTags: { flexDirection: 'row', gap: sz(6), marginTop: sz(6) },
+    guideTag: { backgroundColor: '#f1f5f9', paddingHorizontal: sz(8), paddingVertical: sz(4), borderRadius: sz(6) },
+    guideTagTxt: { fontSize: sz(10), color: '#64748b', fontWeight: '600' },
   });
 };

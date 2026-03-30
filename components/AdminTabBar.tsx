@@ -1,20 +1,11 @@
 /**
  * components/AdminTabBar.tsx
- * Bottom tab bar cho Guide VÀ Floating Menu Sidebar dọc cho Admin
- * Đã rà soát kỹ 100% đường dẫn Routing
+ * ĐÃ FIX LỖI: Thêm đường dẫn "Quản lý Đơn đặt Tour" vào Menu Admin
  */
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from "react-native";
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ─── ADMIN MENU GROUPS ─────────────
@@ -30,6 +21,8 @@ const ADMIN_MENU_GROUPS = [
     title: "Vận hành cốt lõi",
     items: [
       { icon: "map-outline", iconActive: "map", label: "Quản lý Tour", route: "admin-tour-management", color: "#4f7cff" },
+      // FIX: Đã bổ sung mục Quản lý Booking cho Admin
+      { icon: "receipt-outline", iconActive: "receipt", label: "Quản lý Đơn đặt Tour", route: "admin-booking-management", color: "#f59e0b" },
       { icon: "people-outline", iconActive: "people", label: "Quản lý HDV", route: "admin-guide-management", color: "#22c55e" },
       { icon: "person-add-outline", iconActive: "person-add", label: "Duyệt đăng ký HDV", route: "admin-guide-requests", color: "#d97706" },
       { icon: "person-circle-outline", iconActive: "person-circle", label: "Quản lý Users", route: "admin-users", color: "#8b5cf6" },
@@ -47,7 +40,7 @@ const ADMIN_MENU_GROUPS = [
   {
     title: "Marketing & Hệ thống",
     items: [
-      { icon: "ticket-outline", iconActive: "ticket", label: "Quản lý Voucher", route: "admin-voucher-management", color: "#f97316" }, // ĐƯỜNG DẪN CHUẨN XÁC
+      { icon: "ticket-outline", iconActive: "ticket", label: "Quản lý Voucher", route: "admin-voucher-management", color: "#f97316" }, 
       { icon: "flash-outline", iconActive: "flash", label: "Flash Sale / Deal", route: "admin-flash-sale", color: "#e11d48" },
       { icon: "image-outline", iconActive: "image", label: "Quản lý Banner", route: "admin-banner", color: "#6366f1" },
       { icon: "settings-outline", iconActive: "settings", label: "Cài đặt Hệ thống", route: "admin-settings", color: "#64748b" },
@@ -77,7 +70,6 @@ export function AdminTabBar({ role = "admin", activeRoute = "" }: { role?: "admi
   const handleNavigate = (route: string) => {
     setMenuVisible(false);
     setTimeout(() => {
-      // Đảm bảo router push đến đúng địa chỉ
       router.replace(`/${route.replace('/', '')}` as any);
     }, 150);
   };

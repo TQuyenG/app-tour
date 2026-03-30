@@ -1,7 +1,6 @@
 /**
  * app/public-guide-profile.tsx
- * Trang Hồ sơ công khai HDV - Bổ sung hiển thị Học vấn, Bằng cấp
- * ĐÃ FIX LỖI: Thêm lại hàm handleSelectTourSchedule
+ * Trang Hồ sơ công khai HDV - BỔ SUNG: Hiển thị Các Tour nổi bật được HDV ghim
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -28,6 +27,7 @@ export default function PublicGuideProfile() {
   
   const [showTourModal, setShowTourModal] = useState(false);
   const [availableTours, setAvailableTours] = useState<any[]>([]);
+  const [featuredTours, setFeaturedTours] = useState<any[]>([]); // <-- MỚI
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
@@ -36,7 +36,30 @@ export default function PublicGuideProfile() {
         if (rawGuides) {
           const list = JSON.parse(rawGuides);
           const found = list.find((g: any) => g.id === id);
-          if (found) setProfile(found);
+          if (found) {
+            setProfile(found);
+            
+            // --- TẢI DANH SÁCH TOUR NỔI BẬT ---
+            if (found.featuredReviewIds && found.featuredReviewIds.length > 0) {
+              const rRaw = await AsyncStorage.getItem('@guide_reviews');
+              const tRaw = await AsyncStorage.getItem('@app_tours');
+              if (rRaw && tRaw) {
+                const reviews = JSON.parse(rRaw);
+                const tours = JSON.parse(tRaw);
+                const matchedFeatures = found.featuredReviewIds.map((revId: string) => {
+                   const review = reviews.find((r:any) => r.id === revId);
+                   if (!review) return null;
+                   const originalTour = tours.find((t:any) => t.id === review.tourId || t.name === review.tourName);
+                   return {
+                     id: review.id, tourName: review.tourName,
+                     rating: review.tourRating || review.overallRating || review.rating || 5,
+                     image: originalTour ? originalTour.images[0] : 'https://images.unsplash.com/photo-1596422846543-75c6ff416413?w=300'
+                   };
+                }).filter(Boolean);
+                setFeaturedTours(matchedFeatures);
+              }
+            }
+          }
         }
         const rawTours = await AsyncStorage.getItem("@app_tours");
         if (rawTours) setAvailableTours(JSON.parse(rawTours).filter((t:any) => t.status === 'active'));
@@ -45,7 +68,6 @@ export default function PublicGuideProfile() {
     loadData();
   }, [id]));
 
-  // HÀM ĐÃ ĐƯỢC THÊM LẠI ĐỂ FIX BUG
   const handleSelectTourSchedule = (tour: any, schedule: any) => {
     setShowTourModal(false);
     router.push({
@@ -102,6 +124,27 @@ export default function PublicGuideProfile() {
             </View>
           </View>
         </View>
+
+        {/* ── MỚI: CÁC CHUYẾN ĐI NỔI BẬT ── */}
+        {featuredTours.length > 0 && (
+          <View style={{ paddingHorizontal: Math.round(16 * scale), marginBottom: Math.round(20 * scale) }}>
+            <Text style={{ fontSize: Math.round(16 * scale), fontWeight: '900', color: '#1f2a58', marginBottom: Math.round(12 * scale) }}>Các chuyến đi nổi bật</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Math.round(12 * scale) }}>
+              {featuredTours.map((t, idx) => (
+                <View key={idx} style={{ width: Math.round(220 * scale), backgroundColor: '#fff', borderRadius: Math.round(16 * scale), borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden', elevation: 2 }}>
+                  <Image source={{ uri: t.image }} style={{ width: '100%', height: Math.round(120 * scale), backgroundColor: '#e2e8f0' }} />
+                  <View style={{ padding: Math.round(12 * scale) }}>
+                    <Text style={{ fontSize: Math.round(14 * scale), fontWeight: '800', color: '#1f2a58', marginBottom: Math.round(6 * scale) }} numberOfLines={2}>{t.tourName}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Ionicons name="star" size={14} color="#f59e0b" />
+                      <Text style={{ fontSize: Math.round(13 * scale), fontWeight: '700', color: '#d97706' }}>{t.rating} Tuyệt vời</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         <View style={s.infoCard}>
           <Text style={s.infoCardTitle}>Tiểu sử</Text>

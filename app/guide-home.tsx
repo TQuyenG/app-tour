@@ -1,11 +1,11 @@
 /**
  * app/guide-home.tsx
  * Trang chủ Dashboard dành cho Hướng dẫn viên
- * Đã nâng cấp: Icon thông báo hiển thị số lượng thực tế & Link sang trang thông báo
+ * ĐÃ CẬP NHẬT: Tính điểm Đánh giá Trung bình chuẩn xác từ @app_reviews
  */
 import { GuideTabBar } from "@/components/GuideTabBar";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/constants/storage-helper";
 import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -57,33 +57,28 @@ export default function GuideHomeScreen() {
           const wRaw = await AsyncStorage.getItem("@guide_wallet");
           if (wRaw) totalBalance = JSON.parse(wRaw).balance || 0;
 
-          // --- LOGIC TÍNH TOÁN THÔNG BÁO CHƯA ĐỌC (BADGE) ---
           let totalUnread = 0;
-          
-          // 1. Quét đơn hàng mới (Chờ xác nhận)
           const bRaw = await AsyncStorage.getItem("@guest_bookings");
           const allBookings = bRaw ? JSON.parse(bRaw) : [];
           const myBookings = allBookings.filter((b: any) => b.guideId === gId || b.guideName === gName);
-          const newBookingsCount = myBookings.filter((b: any) => ["pending", "paid"].includes(b.status)).length;
-          totalUnread += newBookingsCount;
+          totalUnread += myBookings.filter((b: any) => ["pending", "paid"].includes(b.status)).length;
 
-          // 2. Quét tin nhắn mới chưa đọc
           const cRaw = await AsyncStorage.getItem("@chat_sessions");
           if (cRaw) {
             const sessions = JSON.parse(cRaw);
-            const unreadChats = sessions.filter((s: any) => s.lastSenderRole === 'guest' && (s.unreadCount > 0 || !s.guideRead)).length;
-            totalUnread += unreadChats;
+            totalUnread += sessions.filter((s: any) => s.lastSenderRole === 'guest' && (s.unreadCount > 0 || !s.guideRead)).length;
           }
-          // --------------------------------------------------
 
-          // Tính Rating thực từ Reviews
+          // --- CẬP NHẬT: TÍNH ĐIỂM TRUNG BÌNH CHUẨN XÁC TỪ @app_reviews ---
           let avgRating = "5.0";
           const rRaw = await AsyncStorage.getItem("@app_reviews");
           if (rRaw) {
             const allReviews = JSON.parse(rRaw);
-            const myReviews = allReviews.filter((r: any) => r.guideId === gId);
+            // Tìm theo guideId hoặc guideName để không bị sót
+            const myReviews = allReviews.filter((r: any) => r.guideId === gId || r.guideName === gName);
             if (myReviews.length > 0) {
-              const sum = myReviews.reduce((acc: number, curr: any) => acc + Number(curr.rating || 5), 0);
+              // Ưu tiên lấy điểm HDV (guideRating / overallRating), nếu không có mới lấy rating chung
+              const sum = myReviews.reduce((acc: number, curr: any) => acc + Number(curr.guideRating || curr.overallRating || curr.rating || 5), 0);
               avgRating = (sum / myReviews.length).toFixed(1);
             }
           }
@@ -98,15 +93,17 @@ export default function GuideHomeScreen() {
             const currentYear = now.getFullYear();
 
             toursThisMonthCount = myBookings.filter((b: any) => {
-              if (b.status !== "completed" && b.status !== "done") return false;
-              if (!b.startTime) return false;
-              const tourDate = new Date(b.startTime);
-              return tourDate.getMonth() === currentMonth && tourDate.getFullYear() === currentYear;
+              if (b.status !== "completed" && b.status !== "done" && b.status !== "cancelled") {
+                if (!b.startTime) return false;
+                const tourDate = new Date(b.startTime);
+                return tourDate.getMonth() === currentMonth && tourDate.getFullYear() === currentYear;
+              }
+              return false;
             }).length;
 
             const activeBookings = myBookings.filter((b: any) => 
               ["pending", "paid", "accepted", "confirmed", "on-tour"].includes(b.status) &&
-              new Date(b.startTime || 0).getTime() > new Date().getTime() - 86400000
+              new Date(b.startTime || 0).getTime() > new Date().getTime() - 86400000 // Trong vòng 24h qua và tương lai
             );
             activeBookings.sort((a:any, b:any) => new Date(a.startTime || 0).getTime() - new Date(b.startTime || 0).getTime());
             
@@ -126,6 +123,24 @@ export default function GuideHomeScreen() {
     }, [])
   );
 
+  const handleUpcomingAction = () => {
+    if (!upcoming) return;
+    
+    if (upcoming.status === 'on-tour') {
+      router.push({ pathname: '/active_tour_tracking', params: { bookingId: upcoming.id } } as any);
+      return;
+    }
+
+    const timeDiff = new Date(upcoming.startTime).getTime() - new Date().getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    if (hoursDiff <= 12 && hoursDiff >= -12) {
+      router.push({ pathname: '/active_tour_tracking', params: { bookingId: upcoming.id } } as any);
+    } else {
+      router.push({ pathname: '/shared-booking-detail', params: { bookingId: upcoming.id } } as any);
+    }
+  };
+
   return (
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1f2a58" />
@@ -137,8 +152,6 @@ export default function GuideHomeScreen() {
             <Text style={s.greeting}>Xin chào,</Text>
             <Text style={s.guideName}>{profile.name}</Text>
           </View>
-          
-          {/* ICON THÔNG BÁO CÓ BADGE SỐ LƯỢNG & LINK */}
           <TouchableOpacity style={s.notifBtn} onPress={() => router.push("/guide-notifications")}>
             <Ionicons name="notifications-outline" size={Math.round(22 * scale)} color="#fff" />
             {stats.unreadNotifs > 0 && (
@@ -206,12 +219,33 @@ export default function GuideHomeScreen() {
                      {upcoming.status === "on-tour" ? "Đang diễn ra" : "Sắp tới"}
                    </Text>
                 </View>
-                <Text style={s.activityDate}>{new Date(upcoming.startTime).toLocaleDateString('vi-VN')}</Text>
+                <Text style={s.activityDate}>
+                  {new Date(upcoming.startTime).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})} · {new Date(upcoming.startTime).toLocaleDateString('vi-VN')}
+                </Text>
               </View>
+              
               <Text style={s.activityTitle}>{upcoming.tourName}</Text>
-              <Text style={s.activityMeta}><Ionicons name="people-outline" size={12} /> {upcoming.guests} khách · Mã: #{upcoming.id}</Text>
-              <TouchableOpacity style={s.activityBtn} onPress={() => router.push({ pathname: '/shared-booking-detail', params: { bookingId: upcoming.id } } as any)}>
-                <Text style={s.activityBtnTxt}>Quản lý chuyến đi</Text>
+              
+              <View style={s.guestInfoRow}>
+                <Ionicons name="person-circle-outline" size={16} color="#7a8cc2" />
+                <Text style={s.guestInfoTxt}>Khách: <Text style={{fontWeight: 'bold', color: '#1f2a58'}}>{upcoming.customerName || upcoming.guestName}</Text> ({upcoming.guests} người)</Text>
+              </View>
+
+              <TouchableOpacity 
+                 style={[s.activityBtn, 
+                   (upcoming.status === 'on-tour' || Math.abs(new Date(upcoming.startTime).getTime() - Date.now()) <= 12*3600000) 
+                   ? { backgroundColor: '#4f7cff', borderColor: '#4f7cff' } : {}
+                 ]} 
+                 onPress={handleUpcomingAction}
+              >
+                <Text style={[s.activityBtnTxt, 
+                   (upcoming.status === 'on-tour' || Math.abs(new Date(upcoming.startTime).getTime() - Date.now()) <= 12*3600000) 
+                   ? { color: '#fff' } : {}
+                ]}>
+                  {upcoming.status === 'on-tour' ? "Tiếp tục Hành trình Live" : 
+                  (Math.abs(new Date(upcoming.startTime).getTime() - Date.now()) <= 12*3600000) ? "Điểm danh & Bắt đầu" : 
+                  "Xem chi tiết"}
+                </Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -237,11 +271,8 @@ const getStyles = (scale: number) => {
     greeting: { color: "#94a8d8", fontSize: sz(13), marginBottom: sz(4) },
     guideName: { color: "#fff", fontSize: sz(20), fontWeight: "900" },
     notifBtn: { width: sz(44), height: sz(44), borderRadius: sz(12), backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center", position: "relative" },
-    
-    // BADGE THÔNG BÁO MỚI
     notifBadge: { position: "absolute", top: sz(-4), right: sz(-4), backgroundColor: "#ef4444", minWidth: sz(18), height: sz(18), borderRadius: sz(9), alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#1f2a58", paddingHorizontal: 2 },
     notifBadgeTxt: { color: "#fff", fontSize: sz(9), fontWeight: "900" },
-    
     balanceCard: { backgroundColor: "rgba(255,255,255,0.1)", borderRadius: sz(16), padding: sz(18), borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
     balanceLabel: { color: "#e4ebff", fontSize: sz(12), fontWeight: "600", marginBottom: sz(8) },
     balanceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
@@ -262,13 +293,15 @@ const getStyles = (scale: number) => {
     quickCard: { width: "31%", backgroundColor: "#fff", borderRadius: sz(14), paddingVertical: sz(14), alignItems: "center", elevation: 1 },
     quickIconBox: { width: sz(44), height: sz(44), borderRadius: sz(14), alignItems: "center", justifyContent: "center", marginBottom: sz(8) },
     quickLabel: { color: "#1f2a58", fontSize: sz(10), fontWeight: "700" },
+    
     activityCard: { backgroundColor: "#fff", borderRadius: sz(16), padding: sz(16), elevation: 2 },
     activityHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: sz(10) },
     activityBadge: { backgroundColor: "#eef2ff", paddingHorizontal: sz(8), paddingVertical: sz(4), borderRadius: sz(6) },
     activityBadgeTxt: { color: "#4f7cff", fontSize: sz(10), fontWeight: "800" },
-    activityDate: { color: "#7a8cc2", fontSize: sz(12), fontWeight: "700" },
-    activityTitle: { color: "#1f2a58", fontSize: sz(16), fontWeight: "900", marginBottom: sz(6) },
-    activityMeta: { color: "#64748b", fontSize: sz(12), marginBottom: sz(14) },
+    activityDate: { color: "#4f7cff", fontSize: sz(13), fontWeight: "800" },
+    activityTitle: { color: "#1f2a58", fontSize: sz(16), fontWeight: "900", marginBottom: sz(8) },
+    guestInfoRow: { flexDirection: 'row', alignItems: 'center', gap: sz(6), marginBottom: sz(16) },
+    guestInfoTxt: { color: "#64748b", fontSize: sz(13) },
     activityBtn: { backgroundColor: "#f8fafc", paddingVertical: sz(12), borderRadius: sz(10), alignItems: "center", borderWidth: 1, borderColor: "#e2e8f0" },
     activityBtnTxt: { color: "#4f7cff", fontWeight: "800", fontSize: sz(13) },
   });

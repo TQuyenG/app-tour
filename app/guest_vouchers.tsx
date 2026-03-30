@@ -1,9 +1,9 @@
 /**
  * app/guest_vouchers.tsx
- * Kho voucher của khách: ĐÃ FIX LỖI DỮ LIỆU CŨ & BỔ SUNG LỊCH SỬ NGUỒN GỐC
+ * Kho voucher của khách: ĐÃ FIX LỌC NGHIÊM NGẶT THEO USER ĐANG ĐĂNG NHẬP
  */
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@/constants/storage-helper"; // Sử dụng màng lọc để tách dữ liệu cá nhân
+import AsyncStorage from "@/constants/storage-helper";
 import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState, useMemo } from "react";
@@ -14,7 +14,7 @@ interface Voucher {
   id: string; code: string; type: "fixed" | "percent";
   value: number; desc?: string; title?: string;
   used: boolean; source: "system" | "cskh" | "promo" | "loyalty";
-  color: string; usedAt?: string;
+  color: string; accountId?: string;
 }
 
 export default function GuestVouchersScreen() {
@@ -27,27 +27,27 @@ export default function GuestVouchersScreen() {
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [promoCode, setPromoCode] = useState("");
   const [activeTab, setActiveTab] = useState<"active" | "history">("active");
-
   const [customAlert, setCustomAlert] = useState<{visible: boolean, title: string, message: string, type: "success" | "error" | "info"}>({ visible: false, title: "", message: "", type: "info" });
-  
+  const [guestId, setGuestId] = useState("");
+
   const showAlert = (title: string, message: string, type: "success" | "error" | "info" = "info") => {
     setCustomAlert({ visible: true, title, message, type });
   };
 
   const loadVouchers = async () => {
-    // 1. Lấy thông tin User hiện tại từ Session để lọc dữ liệu quà tặng riêng
     const userRaw = await AsyncStorage.getItem("@app_current_user");
     if (!userRaw) return;
     const currentUser = JSON.parse(userRaw);
-    const guestId = currentUser.accountId;
+    const currentGuestId = currentUser.accountId;
+    setGuestId(currentGuestId);
 
     let allVouchers: Voucher[] = [];
 
-    // 2. Nguồn 1: Voucher khách tự thu thập hoặc đổi điểm (Màng lọc tự tách theo User ID)
+    // 1. Voucher tự thu thập (CHỈ HIỂN THỊ CỦA ACCOUNT ĐANG ĐĂNG NHẬP)
     const guestRaw = await AsyncStorage.getItem("@guest_vouchers");
     if (guestRaw) {
       const guestList = JSON.parse(guestRaw);
-      guestList.forEach((v: any) => {
+      guestList.filter((v: any) => v.accountId === currentGuestId).forEach((v: any) => {
         allVouchers.push({ 
             ...v, 
             value: Number(v.value || v.discountValue || 0), 
@@ -57,30 +57,29 @@ export default function GuestVouchersScreen() {
       });
     }
 
-    // 3. Nguồn 2: Voucher Hệ thống tặng tất cả (Dữ liệu dùng chung)
+    // 2. Quà tặng toàn hệ thống
     const adminRaw = await AsyncStorage.getItem("@admin_vouchers_advanced");
     if (adminRaw) {
       const adminList = JSON.parse(adminRaw);
       adminList.filter((v: any) => v.isGiftAll && v.status === "active").forEach((v: any) => {
-        // Tránh trùng mã đã lưu
         if (!allVouchers.find(ex => ex.code === v.code)) {
           allVouchers.push({
             id: v.id, code: v.code, type: v.type, value: Number(v.discountValue || v.value || 0),
-            title: v.title, desc: "Quà tặng hệ thống", used: false, source: "system", color: v.color || "#2856d6"
+            title: v.title, desc: "Quà tặng hệ thống", used: false, source: "system", color: v.color || "#2856d6", accountId: currentGuestId
           });
         }
       });
     }
 
-    // 4. Nguồn 3: Voucher CSKH tặng riêng (Lọc theo Account ID thật để không bị lẫn user cũ)
+    // 3. Quà CSKH tặng riêng
     const directRaw = await AsyncStorage.getItem("@direct_vouchers");
     if (directRaw) {
       const directList = JSON.parse(directRaw);
-      directList.filter((v: any) => v.targetUserId === guestId).forEach((v: any) => {
+      directList.filter((v: any) => v.targetUserId === currentGuestId).forEach((v: any) => {
         if (!allVouchers.find(ex => ex.code === v.code)) {
           allVouchers.push({
             id: v.id, code: v.code, type: v.type, value: Number(v.value || v.discountValue || 0),
-            title: "Mã CSKH / Đền bù", desc: v.reason, used: !!v.used, source: "cskh", color: "#f59e0b"
+            title: "Mã CSKH / Đền bù", desc: v.reason, used: !!v.used, source: "cskh", color: "#f59e0b", accountId: currentGuestId
           });
         }
       });
@@ -120,10 +119,12 @@ export default function GuestVouchersScreen() {
     const guestRaw = await AsyncStorage.getItem("@guest_vouchers");
     const guestList = guestRaw ? JSON.parse(guestRaw) : [];
     
+    // Gắn thêm accountId để phân biệt chủ sở hữu
     guestList.push({
       id: found.id + "_" + Date.now(), code: found.code, type: found.type,
       value: Number(found.discountValue || found.value || 0), title: found.title,
-      desc: "Voucher đã thu thập", used: false, source: "promo", color: found.color || "#10b981"
+      desc: "Voucher đã thu thập", used: false, source: "promo", color: found.color || "#10b981",
+      accountId: guestId
     });
 
     await AsyncStorage.setItem("@guest_vouchers", JSON.stringify(guestList));
@@ -144,7 +145,6 @@ export default function GuestVouchersScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      {/* Custom Alert */}
       <Modal visible={customAlert.visible} animationType="fade" transparent>
         <View style={s.alertOverlay}>
           <View style={s.alertBox}>

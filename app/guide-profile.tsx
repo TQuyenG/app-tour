@@ -1,6 +1,7 @@
 /**
  * app/guide-profile.tsx
- * Quản lý Hồ sơ HDV - FIX: icon logout header + popup xác nhận + fix AsyncStorage import
+ * Quản lý Hồ sơ HDV
+ * ĐÃ BỔ SUNG: Chức năng Ẩn/Hiện Số tài khoản ngân hàng (Con mắt bảo mật)
  */
 import { GuideTabBar } from "@/components/GuideTabBar";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,6 +26,7 @@ interface GuideProfile {
   vneidVerified: boolean; isLocal: boolean; cccd: string; dob: string; education: string;
   hobbies: string[]; awards: string; videoUrl: string;
   avatarUrl: string; coverUrl: string; galleryUrls: string[]; rating?: string; tours?: number;
+  featuredReviewIds?: string[];
 }
 
 const DEFAULT_PROFILE: GuideProfile = {
@@ -33,7 +35,8 @@ const DEFAULT_PROFILE: GuideProfile = {
   bankAccount: "", bankName: "", guideId: "",
   vneidVerified: false, isLocal: false, cccd: "", dob: "", education: "",
   hobbies: [], awards: "", videoUrl: "",
-  avatarUrl: "", coverUrl: "", galleryUrls: [], rating: "5.0", tours: 0
+  avatarUrl: "", coverUrl: "", galleryUrls: [], rating: "5.0", tours: 0,
+  featuredReviewIds: []
 };
 
 export default function GuideProfileScreen() {
@@ -51,14 +54,22 @@ export default function GuideProfileScreen() {
   const [uploadModal, setUploadModal] = useState<{ visible: boolean; type: 'avatar' | 'cover' | 'video' | 'gallery' }>({ visible: false, type: 'avatar' });
   const [mediaUrl, setMediaUrl] = useState('');
   const [pwdModal, setPwdModal] = useState(false);
-  const [logoutModal, setLogoutModal] = useState(false); // ← MỚI
+  const [logoutModal, setLogoutModal] = useState(false);
+  
+  const [showFeaturedModal, setShowFeaturedModal] = useState(false);
+  const [myReviews, setMyReviews] = useState<any[]>([]);
+
+  // --- MỚI: Trạng thái Ẩn/Hiện STK ---
+  const [showBankAcc, setShowBankAcc] = useState(false);
 
   useFocusEffect(useCallback(() => {
     const loadProfile = async () => {
       const raw = await AsyncStorage.getItem("@guide_profile");
+      let formatted = DEFAULT_PROFILE;
+      
       if (raw) {
         const p = JSON.parse(raw);
-        const formatted = {
+        formatted = {
           ...DEFAULT_PROFILE, ...p,
           hobbies: Array.isArray(p.hobbies) ? p.hobbies : (p.hobbies ? p.hobbies.split(',').map((x: string) => x.trim()) : []),
           languages: Array.isArray(p.languages) ? p.languages : (p.languages ? p.languages.split(',').map((x: string) => x.trim()) : []),
@@ -67,11 +78,20 @@ export default function GuideProfileScreen() {
         setProfile(formatted);
         setForm(formatted);
       }
+
+      const rRaw = await AsyncStorage.getItem('@app_reviews');
+      if (rRaw) {
+        const revs = JSON.parse(rRaw);
+        setMyReviews(revs.filter((r: any) => {
+          const matchId = formatted.guideId && r.guideId === formatted.guideId;
+          const matchName = formatted.name && r.guideName === formatted.name;
+          return matchId || matchName;
+        }));
+      }
     };
     loadProfile();
   }, []));
 
-  // ← MỚI: xóa đủ cả 2 key
   const doLogout = async () => {
     setLogoutModal(false);
     await AsyncStorage.removeItem('@app_current_user');
@@ -120,6 +140,27 @@ export default function GuideProfileScreen() {
     setUploadModal({ visible: false, type: 'avatar' });
   };
 
+  const toggleFeaturedReview = (revId: string) => {
+    const current = form.featuredReviewIds || [];
+    if (current.includes(revId)) {
+      setForm({ ...form, featuredReviewIds: current.filter((id: string) => id !== revId) });
+    } else {
+      if (current.length >= 3) {
+        Alert.alert("Giới hạn", "Chỉ được chọn tối đa 3 chuyến đi nổi bật.");
+        return;
+      }
+      setForm({ ...form, featuredReviewIds: [...current, revId] });
+    }
+  };
+
+  // Hàm tạo chuỗi hiển thị STK ẩn
+  const getMaskedBankAccount = (acc: string) => {
+    if (!acc) return "Chưa cập nhật STK";
+    if (showBankAcc) return `STK: ${acc}`;
+    if (acc.length <= 4) return `STK: ****${acc}`;
+    return `STK: **** **** **** ${acc.slice(-4)}`;
+  };
+
   const sz = (val: number) => Math.round(val * scale);
 
   return (
@@ -127,27 +168,19 @@ export default function GuideProfileScreen() {
       <StatusBar barStyle="light-content" backgroundColor="#1f2a58" />
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* HEADER với icon logout bên phải */}
       <View style={[s.header, { paddingTop: insets.top + sz(10) }]}>
         <TouchableOpacity onPress={() => router.replace("/guide-home")} style={s.iconBtn}>
           <Ionicons name="arrow-back" size={sz(24)} color="#fff" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Hồ sơ & Cài đặt</Text>
-        {/* ← MỚI: icon logout trên header */}
         <TouchableOpacity onPress={() => setLogoutModal(true)} style={s.headerLogoutBtn}>
           <Ionicons name="log-out-outline" size={sz(22)} color="#fca5a5" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        contentContainerStyle={[s.content, { paddingBottom: sz(80) + insets.bottom + 20 }]}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={[s.content, { paddingBottom: sz(80) + insets.bottom + 20 }]} showsVerticalScrollIndicator={false}>
         <View style={s.profileCard}>
-          <Image
-            source={{ uri: profile.avatarUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' }}
-            style={s.avatarImgMain}
-          />
+          <Image source={{ uri: profile.avatarUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' }} style={s.avatarImgMain} />
           <View style={s.profileInfo}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={s.nameTxtMain}>{profile.name}</Text>
@@ -173,6 +206,24 @@ export default function GuideProfileScreen() {
             <Ionicons name="create-outline" size={18} color="#4f7cff" />
             <Text style={s.editBtnTxt}>Chỉnh sửa Hồ sơ & Media</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* THÔNG TIN NHẬN TIỀN CÓ CON MẮT ẨN/HIỆN */}
+        <View style={s.card}>
+          <Text style={s.sectionTitle}>Thông tin nhận tiền</Text>
+          <View style={s.bankInfoBox}>
+            <View style={s.bankIconWrap}>
+              <Ionicons name="card" size={20} color="#10b981" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.bankNameTxt}>{profile.bankName || "Chưa cập nhật Ngân hàng"}</Text>
+              <Text style={s.bankAccTxt}>{getMaskedBankAccount(profile.bankAccount)}</Text>
+            </View>
+            {/* NÚT BẬT TẮT ẨN STK */}
+            <TouchableOpacity onPress={() => setShowBankAcc(!showBankAcc)} style={s.eyeBtn}>
+               <Ionicons name={showBankAcc ? "eye-off-outline" : "eye-outline"} size={22} color="#94a3b8" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <Text style={s.sectionTitle}>Công cụ quản lý</Text>
@@ -203,56 +254,42 @@ export default function GuideProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Nút logout cuối trang */}
         <TouchableOpacity style={s.logoutBtn} onPress={() => setLogoutModal(true)}>
           <Ionicons name="log-out-outline" size={20} color="#ef4444" />
           <Text style={s.logoutTxt}>Đăng xuất</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ── POPUP XÁC NHẬN ĐĂNG XUẤT ── */}
+      {/* CÁC MODAL */}
       <Modal visible={logoutModal} transparent animationType="fade">
         <View style={s.popupOverlay}>
           <View style={s.logoutPopup}>
-            <View style={s.logoutPopupIcon}>
-              <Ionicons name="log-out-outline" size={32} color="#ef4444" />
-            </View>
+            <View style={s.logoutPopupIcon}><Ionicons name="log-out-outline" size={32} color="#ef4444" /></View>
             <Text style={s.logoutPopupTitle}>Đăng xuất?</Text>
             <Text style={s.logoutPopupSub}>Bạn có chắc chắn muốn đăng xuất khỏi tài khoản HDV không?</Text>
             <View style={s.logoutPopupBtnRow}>
-              <TouchableOpacity style={s.logoutPopupCancel} onPress={() => setLogoutModal(false)}>
-                <Text style={s.logoutPopupCancelTxt}>Ở lại</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.logoutPopupConfirm} onPress={doLogout}>
-                <Text style={s.logoutPopupConfirmTxt}>Đăng xuất</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={s.logoutPopupCancel} onPress={() => setLogoutModal(false)}><Text style={s.logoutPopupCancelTxt}>Ở lại</Text></TouchableOpacity>
+              <TouchableOpacity style={s.logoutPopupConfirm} onPress={doLogout}><Text style={s.logoutPopupConfirmTxt}>Đăng xuất</Text></TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* MODAL CHỈNH SỬA HỒ SƠ */}
       <Modal visible={editModal} animationType="slide" transparent>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlayEdit}>
           <View style={s.modalSheet}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Cập nhật Hồ sơ</Text>
-              <TouchableOpacity onPress={() => setEditModal(false)} style={s.closeBtn}>
-                <Ionicons name="close" size={24} color="#1f2a58" />
-              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setEditModal(false)} style={s.closeBtn}><Ionicons name="close" size={24} color="#1f2a58" /></TouchableOpacity>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.formContent}>
               <View style={s.coverWrapper}>
                 <ImageBackground source={{ uri: form.coverUrl || 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800' }} style={s.coverImage}>
-                  <TouchableOpacity style={s.camBtn} onPress={() => setUploadModal({ visible: true, type: 'cover' })}>
-                    <Ionicons name="camera" size={20} color="#1f2a58" />
-                  </TouchableOpacity>
+                  <TouchableOpacity style={s.camBtn} onPress={() => setUploadModal({ visible: true, type: 'cover' })}><Ionicons name="camera" size={20} color="#1f2a58" /></TouchableOpacity>
                 </ImageBackground>
                 <View style={s.avatarWrapper}>
                   <Image source={{ uri: form.avatarUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' }} style={s.avatarImgEdit} />
-                  <TouchableOpacity style={s.camBtnSmall} onPress={() => setUploadModal({ visible: true, type: 'avatar' })}>
-                    <Ionicons name="camera" size={14} color="#1f2a58" />
-                  </TouchableOpacity>
+                  <TouchableOpacity style={s.camBtnSmall} onPress={() => setUploadModal({ visible: true, type: 'avatar' })}><Ionicons name="camera" size={14} color="#1f2a58" /></TouchableOpacity>
                 </View>
               </View>
 
@@ -265,6 +302,12 @@ export default function GuideProfileScreen() {
               <TextInput style={s.input} value={form.phone} onChangeText={v => setField('phone', v)} placeholder="VD: 0987 654 321" keyboardType="phone-pad" />
               <Text style={s.inputLabel}>Địa điểm hoạt động</Text>
               <TextInput style={s.input} value={form.location} onChangeText={v => setField('location', v)} placeholder="VD: Đà Lạt, Lâm Đồng" />
+
+              <Text style={[s.formSectionTitle, { marginTop: 24 }]}>QUẢNG CÁO CHUYẾN ĐI</Text>
+              <Text style={s.inputLabel}>Chọn chuyến đi nổi bật ({form.featuredReviewIds?.length || 0}/3)</Text>
+              <TouchableOpacity style={s.input} onPress={() => setShowFeaturedModal(true)}>
+                 <Text style={{color: '#4f7cff', marginTop: 14, fontWeight: '700'}}>Chọn Tour từ Lịch sử Đánh giá...</Text>
+              </TouchableOpacity>
 
               <Text style={[s.formSectionTitle, { marginTop: 24 }]}>GIỚI THIỆU & HÌNH ẢNH</Text>
               <Text style={s.inputLabel}>Giới thiệu bản thân</Text>
@@ -313,7 +356,7 @@ export default function GuideProfileScreen() {
                 ))}
               </View>
 
-              <Text style={[s.formSectionTitle, { marginTop: 24 }]}>THÔNG TIN THANH TOÁN</Text>
+              <Text style={[s.formSectionTitle, { marginTop: 24 }]}>THÔNG TIN THANH TOÁN RÚT TIỀN</Text>
               <Text style={s.inputLabel}>Tên Ngân hàng</Text>
               <TextInput style={s.input} value={form.bankName} onChangeText={v => setField('bankName', v)} placeholder="VD: Vietcombank..." />
               <Text style={s.inputLabel}>Số tài khoản</Text>
@@ -328,7 +371,35 @@ export default function GuideProfileScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* MODAL UPLOAD MEDIA */}
+      <Modal visible={showFeaturedModal} transparent animationType="slide">
+        <View style={s.modalOverlayEdit}>
+          <View style={[s.modalSheet, { height: '80%', padding: sz(24) }]}>
+            <Text style={{fontSize: sz(20), fontWeight: '900', color: '#1f2a58', marginBottom: sz(8)}}>Chọn Tour Nổi Bật</Text>
+            <Text style={{fontSize: sz(13), color: '#ef4444', marginBottom: sz(20), lineHeight: sz(20)}}>
+               Khách hàng sẽ chỉ thấy Tên Tour, Ảnh và Số sao (ẩn thông tin khách cũ để bảo mật).
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {myReviews.map((r: any) => {
+                const isSelected = (form.featuredReviewIds || []).includes(r.id);
+                return (
+                  <TouchableOpacity key={r.id} style={{flexDirection: 'row', alignItems: 'center', padding: sz(14), borderRadius: sz(12), backgroundColor: isSelected ? '#f0fdf4' : '#f8faff', marginBottom: sz(10), borderWidth: 1, borderColor: isSelected ? '#10b981' : '#e4ebff'}} onPress={() => toggleFeaturedReview(r.id)}>
+                    <View style={{ flex: 1 }}>
+                       <Text style={{fontSize: sz(14), fontWeight: '800', color: '#1f2a58', marginBottom: sz(4)}}>{r.tourName}</Text>
+                       <Text style={{fontSize: sz(12), color: '#d97706', fontWeight: '700'}}>⭐ {r.tourRating || r.overallRating || r.rating || 5} Sao</Text>
+                    </View>
+                    <Ionicons name={isSelected ? "checkbox" : "square-outline"} size={24} color={isSelected ? "#10b981" : "#cbd5e1"} />
+                  </TouchableOpacity>
+                );
+              })}
+              {myReviews.length === 0 && <Text style={{textAlign: 'center', color: '#64748b', marginTop: 20}}>Bạn chưa có đánh giá nào.</Text>}
+            </ScrollView>
+            <TouchableOpacity style={s.saveBtn} onPress={() => setShowFeaturedModal(false)}>
+              <Text style={s.saveBtnTxt}>Hoàn tất chọn</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={uploadModal.visible} transparent animationType="fade">
         <KeyboardAvoidingView style={s.popupOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={s.popupBox}>
@@ -340,18 +411,13 @@ export default function GuideProfileScreen() {
             <Text style={s.orTxt}>HOẶC NHẬP LIÊN KẾT URL</Text>
             <TextInput style={[s.input, { width: '100%', marginHorizontal: 0, marginBottom: 0 }]} placeholder="Nhập URL" value={mediaUrl} onChangeText={setMediaUrl} />
             <View style={s.popupBtnRow}>
-              <TouchableOpacity style={s.popupCancelBtn} onPress={() => setUploadModal({ visible: false, type: 'avatar' })}>
-                <Text style={s.popupCancelBtnTxt}>Hủy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.popupSubmitBtn} onPress={handleMediaSubmit}>
-                <Text style={s.popupSubmitBtnTxt}>Xác nhận</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={s.popupCancelBtn} onPress={() => setUploadModal({ visible: false, type: 'avatar' })}><Text style={s.popupCancelBtnTxt}>Hủy</Text></TouchableOpacity>
+              <TouchableOpacity style={s.popupSubmitBtn} onPress={handleMediaSubmit}><Text style={s.popupSubmitBtnTxt}>Xác nhận</Text></TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* MODAL ĐỔI MẬT KHẨU */}
       <Modal visible={pwdModal} transparent animationType="fade">
         <KeyboardAvoidingView style={s.popupOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={s.popupBox}>
@@ -361,12 +427,8 @@ export default function GuideProfileScreen() {
             <TextInput style={[s.input, { width: '100%', marginHorizontal: 0, marginBottom: 10 }]} secureTextEntry placeholder="Mật khẩu mới" />
             <TextInput style={[s.input, { width: '100%', marginHorizontal: 0, marginBottom: 10 }]} secureTextEntry placeholder="Xác nhận mật khẩu mới" />
             <View style={s.popupBtnRow}>
-              <TouchableOpacity style={s.popupCancelBtn} onPress={() => setPwdModal(false)}>
-                <Text style={s.popupCancelBtnTxt}>Hủy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[s.popupSubmitBtn, { backgroundColor: '#f59e0b' }]} onPress={() => { setPwdModal(false); Alert.alert('Thành công', 'Đổi mật khẩu thành công!'); }}>
-                <Text style={s.popupSubmitBtnTxt}>Cập nhật</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={s.popupCancelBtn} onPress={() => setPwdModal(false)}><Text style={s.popupCancelBtnTxt}>Hủy</Text></TouchableOpacity>
+              <TouchableOpacity style={[s.popupSubmitBtn, { backgroundColor: '#f59e0b' }]} onPress={() => { setPwdModal(false); Alert.alert('Thành công', 'Đổi mật khẩu thành công!'); }}><Text style={s.popupSubmitBtnTxt}>Cập nhật</Text></TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -381,7 +443,10 @@ const getStyles = (scale: number) => {
   const sz = (val: number) => Math.round(val * scale);
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: "#f3f7ff" },
-    header: { flexDirection: "row", alignItems: "center", paddingHorizontal: sz(18), paddingBottom: sz(16), backgroundColor: "#1f2a58" },
+    header: { flexDirection: "row", alignItems: "center", paddingHorizontal: sz(20), paddingBottom: sz(14), backgroundColor: "#1f2a58" },
+    title: { fontSize: sz(24), fontWeight: "900", color: "#1f2a58" },
+    logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(8), backgroundColor: '#fef2f2', paddingVertical: sz(14), borderRadius: sz(14), marginTop: sz(10), borderWidth: 1, borderColor: '#fecaca' },
+    logoutTxt: { color: '#ef4444', fontWeight: '800', fontSize: sz(15) },
     iconBtn: { width: sz(40), height: sz(40), borderRadius: sz(12), backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
     headerTitle: { flex: 1, fontSize: sz(18), fontWeight: "800", color: "#fff", textAlign: 'center' },
     headerLogoutBtn: { width: sz(40), height: sz(40), borderRadius: sz(12), backgroundColor: "rgba(239,68,68,0.15)", alignItems: "center", justifyContent: "center" },
@@ -401,6 +466,12 @@ const getStyles = (scale: number) => {
     editBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(8), backgroundColor: '#f1f5f9', paddingVertical: sz(12), borderRadius: sz(12) },
     editBtnTxt: { color: '#4f7cff', fontWeight: '800', fontSize: sz(14) },
 
+    bankInfoBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', padding: sz(14), borderRadius: sz(14), borderWidth: 1, borderColor: '#e2e8f0', marginTop: sz(10) },
+    bankIconWrap: { width: sz(40), height: sz(40), borderRadius: sz(12), backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginRight: sz(12) },
+    bankNameTxt: { fontSize: sz(14), fontWeight: '800', color: '#1f2a58', marginBottom: sz(2) },
+    bankAccTxt: { fontSize: sz(13), color: '#64748b', fontWeight: '600' },
+    eyeBtn: { padding: sz(8), borderRadius: sz(12), backgroundColor: '#f1f5f9' },
+
     sectionTitle: { fontSize: sz(15), fontWeight: '800', color: '#1f2a58', marginBottom: sz(10), marginLeft: sz(4) },
     menuItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: sz(14), borderRadius: sz(14), marginBottom: sz(10), elevation: 1 },
     menuIconBox: { width: sz(40), height: sz(40), borderRadius: sz(12), alignItems: 'center', justifyContent: 'center', marginRight: sz(12) },
@@ -411,10 +482,6 @@ const getStyles = (scale: number) => {
     dualRoleTitle: { fontSize: sz(14), fontWeight: '800', color: '#6d28d9', marginBottom: sz(2) },
     dualRoleSub: { fontSize: sz(12), color: '#8b5cf6' },
 
-    logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sz(8), backgroundColor: '#fef2f2', paddingVertical: sz(14), borderRadius: sz(14), marginTop: sz(10), borderWidth: 1, borderColor: '#fecaca' },
-    logoutTxt: { color: '#ef4444', fontWeight: '800', fontSize: sz(15) },
-
-    // ── LOGOUT POPUP ──
     popupOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.6)", alignItems: "center", justifyContent: "center", padding: sz(24) },
     logoutPopup: { backgroundColor: '#fff', borderRadius: sz(24), padding: sz(28), alignItems: 'center', width: '100%', elevation: 10 },
     logoutPopupIcon: { width: sz(64), height: sz(64), borderRadius: sz(20), backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center', marginBottom: sz(16) },
@@ -458,7 +525,7 @@ const getStyles = (scale: number) => {
     chipTxt: { fontSize: sz(12), color: '#475569', fontWeight: '600' },
     chipTxtActive: { color: '#fff' },
 
-    saveBtn: { backgroundColor: "#4f7cff", borderRadius: sz(14), height: sz(54), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: sz(8), margin: sz(20), marginTop: sz(30) },
+    saveBtn: { backgroundColor: "#4f7cff", borderRadius: sz(14), height: sz(54), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: sz(8), margin: sz(20), marginTop: sz(10) },
     saveBtnTxt: { color: "#fff", fontSize: sz(16), fontWeight: "900" },
 
     popupBox: { backgroundColor: "#fff", width: "100%", borderRadius: sz(24), padding: sz(24), alignItems: "center", elevation: 10 },

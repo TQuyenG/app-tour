@@ -1,11 +1,11 @@
 /**
  * app/guide-earnings.tsx
- * Ví thu nhập HDV - Đọc Database @guide_wallet thực tế
- * Tích hợp tính năng Rút Tiền
+ * Ví thu nhập HDV - Tích hợp tính năng Rút Tiền chuẩn quy trình (Chờ Duyệt)
+ * ĐÃ LIÊN KẾT TRỰC TIẾP VỚI KHO DỮ LIỆU @admin_payouts CỦA KẾ TOÁN
  */
 import { GuideTabBar } from "@/components/GuideTabBar";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/constants/storage-helper";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from "react-native";
@@ -26,7 +26,11 @@ export default function GuideEarnings() {
     try {
       const wRaw = await AsyncStorage.getItem('@guide_wallet');
       if (wRaw) {
-        setWallet(JSON.parse(wRaw));
+        const parsed = JSON.parse(wRaw);
+        setWallet({
+          balance: parsed.balance || 0,
+          transactions: parsed.transactions || []
+        });
       }
     } catch (e) {}
   };
@@ -36,31 +40,68 @@ export default function GuideEarnings() {
   const handleWithdraw = async () => {
     const amt = Number(withdrawAmount.replace(/[^0-9]/g, ''));
     if (amt <= 0 || amt > wallet.balance) {
-      Alert.alert('Lỗi', 'Số tiền rút không hợp lệ hoặc vượt quá số dư.');
+      Alert.alert('Lỗi', 'Số tiền rút không hợp lệ hoặc vượt quá số dư hiện tại.');
       return;
     }
 
     try {
       const newWallet = { ...wallet };
+      const txId = `po-${Date.now()}`; // Đổi ID giống Admin Payout để đồng bộ dễ dàng
+      
+      // 1. Trừ tiền khỏi số dư chính
       newWallet.balance -= amt;
+      
+      // 2. Ghi nhận giao dịch với trạng thái PENDING
       newWallet.transactions.unshift({
-        id: `tx-wd-${Date.now()}`,
+        id: txId,
         type: 'withdraw',
         amount: amt,
-        desc: 'Rút tiền về Tài khoản Ngân hàng',
+        desc: 'Đang xử lý: Rút tiền về Tài khoản Ngân hàng',
+        status: 'pending',
         createdAt: new Date().toISOString()
       });
 
       await AsyncStorage.setItem('@guide_wallet', JSON.stringify(newWallet));
+      
+      // 3. ĐẨY LỆNH RÚT TIỀN SANG TRANG CỦA ADMIN/KẾ TOÁN (@admin_payouts)
+      const pRaw = await AsyncStorage.getItem('@guide_profile');
+      const profile = pRaw ? JSON.parse(pRaw) : {};
+      
+      const adminPayoutsRaw = await AsyncStorage.getItem('@admin_payouts');
+      const adminPayouts = adminPayoutsRaw ? JSON.parse(adminPayoutsRaw) : [];
+      
+      adminPayouts.unshift({
+        id: txId, 
+        guideId: profile.guideId || 'guide-unknown', 
+        guideName: profile.name || 'Hướng dẫn viên', 
+        amount: amt,
+        requestDate: new Date().toLocaleString('vi-VN'), 
+        status: 'pending', 
+        bankInfo: { 
+           bankName: profile.bankName || 'Chưa cập nhật', 
+           accountNumber: profile.bankAccount || 'Chưa cập nhật', 
+           accountName: profile.name || 'Chưa cập nhật' 
+        }
+      });
+      await AsyncStorage.setItem('@admin_payouts', JSON.stringify(adminPayouts));
+
       setWallet(newWallet);
       setShowWithdraw(false);
       setWithdrawAmount('');
-      Alert.alert('Thành công', 'Lệnh rút tiền đã được gửi. Tiền sẽ về tài khoản trong vòng 24h.');
+      
+      Alert.alert(
+        'Yêu cầu thành công', 
+        'Lệnh rút tiền đã được gửi tới Ban quản trị LocalMate. Tiền sẽ được chuyển về tài khoản ngân hàng của bạn ngay sau khi được kế toán duyệt.'
+      );
     } catch (e) {}
   };
 
-  const getTxStyle = (type: string) => {
-    switch(type) {
+  const getTxStyle = (tx: any) => {
+    // Nếu đang pending (rút tiền chưa duyệt), cho màu xám/vàng
+    if (tx.status === 'pending') return { icon: 'time-outline', color: '#d97706', bg: '#fef3c7', sign: '-' };
+    if (tx.status === 'rejected') return { icon: 'refresh', color: '#64748b', bg: '#f1f5f9', sign: '+' }; // Hoàn tiền
+
+    switch(tx.type) {
       case 'tour_income': return { icon: 'briefcase', color: '#10b981', bg: '#dcfce7', sign: '+' };
       case 'tip': return { icon: 'gift', color: '#f59e0b', bg: '#fef3c7', sign: '+' };
       case 'withdraw': return { icon: 'card', color: '#ef4444', bg: '#fef2f2', sign: '-' };
@@ -99,13 +140,16 @@ export default function GuideEarnings() {
 
         <Text style={s.sectionTitle}>Lịch sử Giao dịch</Text>
         
-        {wallet.transactions.length === 0 ? (
-          <Text style={{textAlign: 'center', color: '#94a3b8', marginTop: 20}}>Chưa có giao dịch nào.</Text>
+        {(wallet.transactions || []).length === 0 ? (
+          <View style={{alignItems: 'center', marginTop: 40}}>
+             <Ionicons name="receipt-outline" size={50} color="#cbd5e1" />
+             <Text style={{textAlign: 'center', color: '#94a3b8', marginTop: 10}}>Chưa có giao dịch nào.</Text>
+          </View>
         ) : (
           wallet.transactions.map((tx: any) => {
-            const style = getTxStyle(tx.type);
+            const style = getTxStyle(tx);
             return (
-              <View key={tx.id} style={s.txCard}>
+              <View key={tx.id} style={[s.txCard, tx.status === 'pending' && {borderColor: '#fde68a', backgroundColor: '#fffbeb'}]}>
                 <View style={[s.txIconBox, { backgroundColor: style.bg }]}>
                   <Ionicons name={style.icon as any} size={20} color={style.color} />
                 </View>
@@ -113,27 +157,30 @@ export default function GuideEarnings() {
                   <Text style={s.txDesc} numberOfLines={2}>{tx.desc}</Text>
                   <Text style={s.txDate}>{safeDate(tx.createdAt)}</Text>
                 </View>
-                <Text style={[s.txAmount, { color: style.sign === '-' ? '#ef4444' : '#10b981' }]}>
-                  {style.sign}{(tx.amount || 0).toLocaleString('vi-VN')}đ
-                </Text>
+                <View style={{alignItems: 'flex-end'}}>
+                   <Text style={[s.txAmount, { color: style.sign === '-' ? (tx.status === 'pending' ? '#d97706' : '#ef4444') : '#10b981' }]}>
+                     {style.sign}{(tx.amount || 0).toLocaleString('vi-VN')}đ
+                   </Text>
+                   {tx.status === 'pending' && <Text style={{fontSize: 10, color: '#d97706', fontWeight: 'bold', marginTop: 4}}>Chờ Kế toán</Text>}
+                   {tx.status === 'rejected' && <Text style={{fontSize: 10, color: '#64748b', fontWeight: 'bold', marginTop: 4}}>Đã hoàn lại</Text>}
+                </View>
               </View>
             );
           })
         )}
       </ScrollView>
 
-      {/* POPUP RÚT TIỀN */}
       <Modal visible={showWithdraw} transparent animationType="fade">
         <KeyboardAvoidingView style={s.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={s.modalBox}>
             <Ionicons name="card" size={50} color="#4f7cff" />
             <Text style={s.modalTitle}>Rút tiền</Text>
-            <Text style={s.modalSub}>Nhập số tiền bạn muốn rút. Tối đa: {(wallet.balance || 0).toLocaleString('vi-VN')}đ</Text>
+            <Text style={s.modalSub}>Lệnh rút tiền sẽ được gửi tới Kế toán phê duyệt. Tối đa: {(wallet.balance || 0).toLocaleString('vi-VN')}đ</Text>
             
             <TextInput 
               style={s.input} 
               keyboardType="number-pad" 
-              placeholder="VD: 500000" 
+              placeholder="Nhập số tiền..." 
               value={withdrawAmount} 
               onChangeText={setWithdrawAmount} 
             />
@@ -143,7 +190,7 @@ export default function GuideEarnings() {
                 <Text style={[s.btnTxt, {color: '#64748b'}]}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.btn, {backgroundColor: '#4f7cff'}]} onPress={handleWithdraw}>
-                <Text style={s.btnTxt}>Xác nhận Rút</Text>
+                <Text style={s.btnTxt}>Tạo lệnh Rút</Text>
               </TouchableOpacity>
             </View>
           </View>

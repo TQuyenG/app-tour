@@ -1,17 +1,14 @@
 /**
  * app/guide-booking-management.tsx
  * Quản lý Booking - Xanh Royal, Dữ liệu thực 100%
- * ĐÃ TỐI ƯU LUỒNG: Bỏ bước Nhận/Từ chối (Tự động nhận). Bấm vào Tên tour để xem chi tiết.
+ * ĐÃ BỔ SUNG: Hiển thị Đánh giá từ Khách hàng trong thẻ thông tin mở rộng (nếu tour đã hoàn thành)
  */
 import { GuideTabBar } from "@/components/GuideTabBar";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet,
-  Text, TextInput, TouchableOpacity, View, Alert
-} from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const STORAGE_KEY = "@guest_bookings";
@@ -37,17 +34,15 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> =
 };
 
 const FILTERS = [
-  { key: "all", label: "Tất cả" }, 
-  { key: "upcoming", label: "Sắp tới" }, 
-  { key: "on-tour", label: "Đang dẫn" },
-  { key: "completed", label: "Xong" }, 
-  { key: "cancelled", label: "Hủy" },
+  { key: "all", label: "Tất cả" }, { key: "upcoming", label: "Sắp tới" }, { key: "on-tour", label: "Đang dẫn" },
+  { key: "completed", label: "Xong" }, { key: "cancelled", label: "Hủy" },
 ];
 
 export default function GuideBookingManagement() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]); // THÊM STATE REVIEWS
   const [filter, setFilter] = useState("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [noteModal, setNoteModal] = useState<Booking | null>(null);
@@ -85,15 +80,15 @@ export default function GuideBookingManagement() {
             createdAt: b.createdAt ? new Date(b.createdAt).toLocaleDateString('vi-VN') : "Hôm nay",
             date: b.startTime ? new Date(b.startTime).toLocaleString('vi-VN') : (b.date || "Chưa xác định"),
           }));
-          
           normalized.sort((a:any, b:any) => new Date(b.startTime || 0).getTime() - new Date(a.startTime || 0).getTime());
           setBookings(normalized);
-        } else {
-          setBookings([]); 
-        }
-      } catch (e) {
-        console.error("Error loading bookings:", e);
-      }
+        } else { setBookings([]); }
+
+        // TẢI DANH SÁCH ĐÁNH GIÁ (REVIEWS) TỪ CƠ SỞ DỮ LIỆU
+        const rRaw = await AsyncStorage.getItem('@app_reviews');
+        if (rRaw) setReviews(JSON.parse(rRaw));
+
+      } catch (e) { console.error("Error loading bookings:", e); }
     };
     loadData();
   }, []));
@@ -147,15 +142,9 @@ export default function GuideBookingManagement() {
       <Stack.Screen options={{ headerShown: false }} />
       
       <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity onPress={() => router.replace("/guide-home")} style={s.iconBtn}>
-          <Ionicons name="arrow-back" size={22} color="#1f2a58" />
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.replace("/guide-home")} style={s.iconBtn}><Ionicons name="arrow-back" size={22} color="#1f2a58" /></TouchableOpacity>
         <Text style={s.headerTitle}>Quản lý Lịch hẹn</Text>
-        {upcomingCount > 0 && (
-          <View style={s.pendingBadge}>
-            <Text style={s.pendingTxt}>{upcomingCount} sắp tới</Text>
-          </View>
-        )}
+        {upcomingCount > 0 && <View style={s.pendingBadge}><Text style={s.pendingTxt}>{upcomingCount} sắp tới</Text></View>}
       </View>
 
       <View style={s.statsRow}>
@@ -165,10 +154,7 @@ export default function GuideBookingManagement() {
           { l: "Đang dẫn", v: bookings.filter((b) => b.status === "on-tour").length, c: "#a855f7" },
           { l: "Thu nhập", v: `${(totalEarned / 1000000).toFixed(1)}tr`, c: "#10b981" },
         ].map((item, i, arr) => (
-          <View key={item.l} style={[s.statItem, i < arr.length - 1 && s.statBorder]}>
-            <Text style={[s.statNum, { color: item.c }]}>{item.v}</Text>
-            <Text style={s.statLbl}>{item.l}</Text>
-          </View>
+          <View key={item.l} style={[s.statItem, i < arr.length - 1 && s.statBorder]}><Text style={[s.statNum, { color: item.c }]}>{item.v}</Text><Text style={s.statLbl}>{item.l}</Text></View>
         ))}
       </View>
 
@@ -184,28 +170,22 @@ export default function GuideBookingManagement() {
 
       <ScrollView contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>
         {filtered.length === 0 && (
-          <View style={s.emptyWrap}>
-            <Ionicons name="calendar-outline" size={56} color="#c0cbe8" />
-            <Text style={s.emptyText}>Chưa có booking nào</Text>
-          </View>
+          <View style={s.emptyWrap}><Ionicons name="calendar-outline" size={56} color="#c0cbe8" /><Text style={s.emptyText}>Chưa có booking nào</Text></View>
         )}
         {filtered.map((booking) => {
           const st = STATUS_MAP[booking.status] || STATUS_MAP["pending"];
           const isOpen = expandedId === booking.id;
+          
           return (
             <TouchableOpacity key={booking.id} style={s.card} activeOpacity={0.88} onPress={() => setExpandedId(isOpen ? null : booking.id)}>
               <View style={s.cardTopRow}>
                 <View style={s.custRow}>
                   <View style={s.custAvatar}><Ionicons name="person" size={14} color="#4f7cff" /></View>
-                  <View>
-                    <Text style={s.custName}>{booking.customerName}</Text>
-                    <Text style={s.custPhone}>{booking.customerPhone}</Text>
-                  </View>
+                  <View><Text style={s.custName}>{booking.customerName}</Text><Text style={s.custPhone}>{booking.customerPhone}</Text></View>
                 </View>
                 <View style={[s.badge, { backgroundColor: st.bg }]}><Text style={[s.badgeTxt, { color: st.color }]}>{st.label}</Text></View>
               </View>
               
-              {/* BẤM VÀO TÊN TOUR ĐỂ CHUYỂN SANG TRANG CHI TIẾT PUBLIC CỦA TOUR ĐÓ */}
               <TouchableOpacity onPress={() => router.push({ pathname: '/tour/[id]', params: { id: booking.tourId || '' } } as any)}>
                 <Text style={s.tourName}>{booking.tourName} <Ionicons name="open-outline" size={12} /></Text>
               </TouchableOpacity>
@@ -227,14 +207,31 @@ export default function GuideBookingManagement() {
 
               {isOpen && (
                 <View style={s.expandSection}>
+                  
+                  {/* TÌM VÀ HIỂN THỊ ĐÁNH GIÁ CỦA KHÁCH NẾU CÓ */}
+                  {(() => {
+                     const rv = reviews.find(r => String(r.bookingId) === String(booking.id));
+                     if (!rv) return null;
+                     return (
+                       <View style={s.reviewSection}>
+                         <View style={s.reviewHeader}>
+                            <Ionicons name="star" size={14} color="#d97706" />
+                            <Text style={s.reviewTitle}>Khách đã đánh giá</Text>
+                         </View>
+                         <View style={{flexDirection: 'row', gap: 10, marginTop: 4}}>
+                            <Text style={s.reviewStats}>Tour: <Text style={{fontWeight:'bold'}}>{rv.tourRating || rv.rating || 5}⭐</Text></Text>
+                            <Text style={s.reviewStats}>Phục vụ: <Text style={{fontWeight:'bold'}}>{rv.guideRating || rv.overallRating || rv.rating || 5}⭐</Text></Text>
+                         </View>
+                         <Text style={s.reviewText}>"{rv.reviewText || rv.comment || 'Không có nhận xét'}"</Text>
+                         {rv.tipAmount > 0 && <Text style={s.reviewTip}>+ Tiền Tip: {Number(rv.tipAmount).toLocaleString("vi-VN")}đ</Text>}
+                       </View>
+                     );
+                  })()}
+
                   {!!booking.note && (
-                    <View style={s.noteBox}>
-                      <Ionicons name="document-text-outline" size={13} color="#4f7cff" />
-                      <Text style={s.noteTxt}>{booking.note}</Text>
-                    </View>
+                    <View style={s.noteBox}><Ionicons name="document-text-outline" size={13} color="#4f7cff" /><Text style={s.noteTxt}>{booking.note}</Text></View>
                   )}
                   
-                  {/* NÚT CHI TIẾT BOOKING CHUNG CÓ ĐẦY ĐỦ THÔNG TIN VÀ TRACKING */}
                   <TouchableOpacity style={s.detailBtn} onPress={() => router.push({ pathname: '/shared-booking-detail', params: { bookingId: booking.id } } as any)}>
                     <Text style={s.detailBtnTxt}>Xem chi tiết & Cập nhật lộ trình</Text>
                   </TouchableOpacity>
@@ -242,27 +239,12 @@ export default function GuideBookingManagement() {
                   <View style={s.actionRow}>
                     {["pending", "paid", "accepted", "confirmed"].includes(booking.status) && (
                       <>
-                        <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#f3e8ff" }]} onPress={() => updateStatus(booking.id, "on-tour")}>
-                          <Ionicons name="play-circle-outline" size={14} color="#a855f7" />
-                          <Text style={[s.actionTxt, { color: "#a855f7" }]}>Bắt đầu dẫn</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fee2e2" }]} onPress={() => updateStatus(booking.id, "cancelled")}>
-                          <Ionicons name="close-circle-outline" size={14} color="#ef4444" />
-                          <Text style={[s.actionTxt, { color: "#ef4444" }]}>Hủy tour</Text>
-                        </TouchableOpacity>
+                        <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#f3e8ff" }]} onPress={() => updateStatus(booking.id, "on-tour")}><Ionicons name="play-circle-outline" size={14} color="#a855f7" /><Text style={[s.actionTxt, { color: "#a855f7" }]}>Bắt đầu dẫn</Text></TouchableOpacity>
+                        <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fee2e2" }]} onPress={() => updateStatus(booking.id, "cancelled")}><Ionicons name="close-circle-outline" size={14} color="#ef4444" /><Text style={[s.actionTxt, { color: "#ef4444" }]}>Hủy tour</Text></TouchableOpacity>
                       </>
                     )}
-
-                    {/* NÚT CHAT VỚI KHÁCH */}
-                    <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" }]} onPress={() => router.push('/guide_chat_list' as any)}>
-                      <Ionicons name="chatbubbles-outline" size={14} color="#4f7cff" />
-                      <Text style={[s.actionTxt, { color: "#4f7cff" }]}>Chat ngay</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" }]} onPress={() => showPopup("info", "Gọi điện", `${booking.customerName}\n${booking.customerPhone}`)}>
-                      <Ionicons name="call-outline" size={14} color="#4f7cff" />
-                      <Text style={[s.actionTxt, { color: "#4f7cff" }]}>Gọi khách</Text>
-                    </TouchableOpacity>
+                    <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" }]} onPress={() => router.push('/guide_chat_list' as any)}><Ionicons name="chatbubbles-outline" size={14} color="#4f7cff" /><Text style={[s.actionTxt, { color: "#4f7cff" }]}>Chat ngay</Text></TouchableOpacity>
+                    <TouchableOpacity style={[s.actionBtn, { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" }]} onPress={() => showPopup("info", "Gọi điện", `${booking.customerName}\n${booking.customerPhone}`)}><Ionicons name="call-outline" size={14} color="#4f7cff" /><Text style={[s.actionTxt, { color: "#4f7cff" }]}>Gọi khách</Text></TouchableOpacity>
                   </View>
                 </View>
               )}
@@ -279,19 +261,11 @@ export default function GuideBookingManagement() {
             <View style={s.handle} />
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Ghi chú booking</Text>
-              <TouchableOpacity onPress={() => setNoteModal(null)} style={s.closeBtn}>
-                <Ionicons name="close" size={20} color="#7a8cc2" />
-              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setNoteModal(null)} style={s.closeBtn}><Ionicons name="close" size={20} color="#7a8cc2" /></TouchableOpacity>
             </View>
             <View style={s.modalBody}>
-              <TextInput
-                style={[s.input, { minHeight: 100, paddingTop: 12 }]} value={noteText} onChangeText={setNoteText}
-                placeholder="Nhập ghi chú về booking..." multiline numberOfLines={4} placeholderTextColor="#b0bdd8" textAlignVertical="top" autoFocus
-              />
-              <TouchableOpacity style={s.saveBtn} onPress={saveNote}>
-                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                <Text style={s.saveBtnTxt}>Lưu ghi chú</Text>
-              </TouchableOpacity>
+              <TextInput style={[s.input, { minHeight: 100, paddingTop: 12 }]} value={noteText} onChangeText={setNoteText} placeholder="Nhập ghi chú về booking..." multiline numberOfLines={4} placeholderTextColor="#b0bdd8" textAlignVertical="top" autoFocus />
+              <TouchableOpacity style={s.saveBtn} onPress={saveNote}><Ionicons name="checkmark-circle-outline" size={18} color="#fff" /><Text style={s.saveBtnTxt}>Lưu ghi chú</Text></TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -305,7 +279,6 @@ export default function GuideBookingManagement() {
             </View>
             <Text style={s.confirmTitle}>{confirmPopup.title}</Text>
             <Text style={s.confirmMessage}>{confirmPopup.message}</Text>
-
             {confirmPopup.type === "confirm" ? (
               <View style={s.confirmActionRow}>
                 <TouchableOpacity style={s.confirmCancelBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}><Text style={s.confirmCancelBtnTxt}>Hủy</Text></TouchableOpacity>
@@ -365,6 +338,14 @@ const s = StyleSheet.create({
   createdAt: { color: "#94a8d8", fontSize: 11 },
   
   expandSection: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#f0f4ff" },
+
+  reviewSection: { backgroundColor: "#fffbeb", borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: "#fde68a" },
+  reviewHeader: { flexDirection: "row", alignItems: "center", gap: 4 },
+  reviewTitle: { color: "#d97706", fontWeight: "800", fontSize: 12 },
+  reviewStats: { color: "#92400e", fontSize: 11 },
+  reviewText: { color: "#92400e", fontSize: 12, lineHeight: 18, marginTop: 6, fontStyle: 'italic' },
+  reviewTip: { color: "#16a34a", fontSize: 11, fontWeight: "700", marginTop: 4 },
+
   noteBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "#f8fafc", borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: "#e2e8f0" },
   noteTxt: { color: "#64748b", fontSize: 13, lineHeight: 20, flex: 1 },
   detailBtn: { backgroundColor: '#f1f5f9', padding: 12, borderRadius: 12, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#e4ebff' },

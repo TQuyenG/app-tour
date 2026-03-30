@@ -5,7 +5,7 @@
  */
 import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/constants/storage-helper";
 import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import { useCallback, useState, useEffect, useRef } from "react";
 import {
@@ -19,7 +19,7 @@ import { TOURS, GUIDES } from "@/constants/travel-data";
 
 const STORAGE_KEY = "@app_tours";
 
-type TourStatus = "active" | "full" | "draft";
+type TourStatus = "active" | "full" | "draft" | "pending_approval" | "rejected";
 interface AppliedGuide { id: string; name: string; note: string; vneidVerified?: boolean; }
 interface RejectedGuide { id: string; name: string; reason: string; }
 interface TourReport { id: string; guideName: string; text: string; date: string; isResolved: boolean; }
@@ -38,9 +38,32 @@ interface Tour {
   rejectedGuides?: RejectedGuide[];
   reports?: TourReport[];
   schedules?: any[]; // THÊM TRƯỜNG DỮ LIỆU LỊCH TRÌNH
+  image?: string;
+  proposedByGuideId?: string;
+  proposedByGuideName?: string;
+  rejectionReason?: string;
+  resubmitNote?: string;
 }
 
 const CATEGORIES = ["Tất cả", "Biển đảo", "Núi rừng", "Văn hóa", "Nghỉ dưỡng", "Phiêu lưu", "Gia đình"];
+const CATEGORIES_FORM = ["Biển đảo", "Núi rừng", "Văn hóa", "Nghỉ dưỡng", "Phiêu lưu", "Gia đình"];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  "Biển đảo":  "#0ea5e9",
+  "Núi rừng":  "#10b981",
+  "Văn hóa":   "#8b5cf6",
+  "Nghỉ dưỡng":"#f59e0b",
+  "Phiêu lưu": "#ef4444",
+  "Gia đình":  "#ec4899",
+};
+
+const ALL_TAGS = [
+  "Săn mây", "Chụp ảnh", "Ẩm thực", "Biển", "Nghỉ dưỡng",
+  "Hoàng hôn", "Lặn biển", "Gia đình", "Relax", "Ruộng bậc thang",
+  "Văn hóa", "Trekking nhẹ", "Di sản", "Đêm phố cổ", "Lịch sử",
+  "Di tích", "Resort", "Cuối tuần", "Phượt", "Cảnh núi", "Roadtrip",
+  "Sông nước", "Check-in", "Ảnh đẹp", "Vui chơi", "Mát mẻ",
+];
 
 // THUẬT TOÁN TÍNH GIỜ: Bóc tách chuỗi thời lượng (VD: "3 ngày 2 đêm", "5 tiếng") thành Giờ
 const parseDurationToHours = (duration: string) => {
@@ -99,6 +122,8 @@ export default function AdminTourManagementScreen() {
   const [editingTour, setEditingTour] = useState<Partial<Tour>>({});
   const [priceInput, setPriceInput] = useState("");
   const [newStart, setNewStart] = useState(""); // unused legacy
+
+  
 
   // ── SCHEDULE INPUT STATE ─────────────────────────────────────────────────
   const [durationDays,   setDurationDays]   = useState("");
@@ -221,9 +246,45 @@ export default function AdminTourManagementScreen() {
   const [reportsModal, setReportsModal] = useState<{ visible: boolean; tour: Tour | null }>({ visible: false, tour: null });
   const [pendingTasksModal, setPendingTasksModal] = useState(false);
 
+  // --- MỚI: State và Logic cho Đề xuất Tour từ HDV ---
+  const [rejectProposalModal, setRejectProposalModal] = useState(false);
+  const [proposalRejectReason, setProposalRejectReason] = useState("");
+
+  // Popup xác nhận dùng chung toàn màn hình
   const [confirmPopup, setConfirmPopup] = useState<{
-    visible: boolean; type: "delete" | "success" | "error"; title: string; message: string; targetId?: string;
+    visible: boolean; type: "success" | "error" | "delete"; title: string; message: string; targetId?: string;
   }>({ visible: false, type: "success", title: "", message: "" });
+
+  const notifyGuide = async (guideId: string, title: string, message: string) => {
+    try {
+      const gRaw = await AsyncStorage.getItem('@guide_notifications');
+      const guideNotifs = gRaw ? JSON.parse(gRaw) : [];
+      guideNotifs.unshift({
+        id: `gn-${Date.now()}`, type: 'system', guideId, title, body: message, time: new Date().toISOString(), read: false
+      });
+      await AsyncStorage.setItem('@guide_notifications', JSON.stringify(guideNotifs));
+    } catch(e) {}
+  };
+
+
+
+  const handleRejectProposalSubmit = async () => {
+    if (!editingTour || !proposalRejectReason.trim()) {
+      setConfirmPopup({ visible: true, type: "error", title: "Lỗi", message: "Vui lòng nhập lý do từ chối." });
+      return;
+    }
+    const finalTour = { ...editingTour, status: 'rejected' as TourStatus, rejectionReason: proposalRejectReason };
+    const updatedTours = tours.map((t) => (t.id === finalTour.id ? finalTour as Tour : t));
+    
+    await saveToursData(updatedTours);
+    
+    if (finalTour.proposedByGuideId) {
+      await notifyGuide(finalTour.proposedByGuideId, "Đề xuất Tour bị Từ chối", `Đề xuất Tour "${finalTour.name}" đã bị từ chối. Lý do: ${proposalRejectReason}`);
+    }
+    setRejectProposalModal(false);
+    setModalVisible(false);
+    setConfirmPopup({ visible: true, type: "success", title: "Đã từ chối", message: "Đã gửi từ chối cho HDV." });
+  };
 
   useFocusEffect(useCallback(() => { loadTours(); }, []));
 
@@ -297,7 +358,7 @@ export default function AdminTourManagementScreen() {
         totalBookings: 0, departure: "TP. HCM", rating: 0, reviewCount: 0, description: "", 
         pointsReward: 100, // <-- THÊM DÒNG NÀY (Mặc định 100đ khi hoàn thành)
         reviewPoints: 50,   // <-- THÊM DÒNG NÀY (Mặc định 50đ khi review)
-        assignedGuideNames: [], appliedGuides: [], tags: [], color: "#4f7cff", priceRaw: 0, price: "0đ", schedules: []
+        assignedGuideNames: [], appliedGuides: [], tags: [], color: CATEGORY_COLORS["Biển đảo"], priceRaw: 0, price: "0đ", schedules: []
       });
       setPriceInput("");
     }
@@ -412,9 +473,23 @@ export default function AdminTourManagementScreen() {
   };
 
   const handleApproveProposal = async (tourId: string) => {
-    const updated = tours.map(t => t.id === tourId ? { ...t, status: "active" as TourStatus, description: `[Đề xuất từ HDV] ${t.description || ""}` } : t);
+    const tour = tours.find(t => t.id === tourId);
+    const finalTour = tour ? {
+      ...tour,
+      status: "active" as TourStatus,
+      // Gán luôn HDV đề xuất vào assignedGuideNames nếu chưa có
+      assignedGuideNames: (tour.proposedByGuideName && !(tour.assignedGuideNames || []).includes(tour.proposedByGuideName))
+        ? [...(tour.assignedGuideNames || []), tour.proposedByGuideName]
+        : (tour.assignedGuideNames || []),
+    } : null;
+    if (!finalTour) return;
+    const updated = tours.map(t => t.id === tourId ? finalTour : t);
     await saveToursData(updated);
-    setConfirmPopup({ visible: true, type: "success", title: "Đã phê duyệt", message: "Đề xuất Tour đã xuất bản." });
+    // Thông báo cho HDV đề xuất
+    if (finalTour.proposedByGuideId) {
+      await notifyGuide(finalTour.proposedByGuideId, "Đề xuất Tour được Duyệt", `Tour "${finalTour.name}" của bạn đã được duyệt và đang hoạt động.`);
+    }
+    setConfirmPopup({ visible: true, type: "success", title: "Đã phê duyệt", message: "Đề xuất Tour đã được xuất bản." });
   };
 
   const handleApproveGuide = async (guide: AppliedGuide) => {
@@ -565,8 +640,14 @@ export default function AdminTourManagementScreen() {
 
   const filteredTours = tours.filter((t) => {
     const matchCat = filterCat === "Tất cả" || t.category === filterCat;
-    const matchStatus = filterStatus === "all" || t.status === filterStatus;
     const matchSearch = (t.name || "").toLowerCase().includes(searchQuery.toLowerCase());
+    
+    let matchStatus = true;
+    if (filterStatus === "active") matchStatus = t.status === "active";
+    else if (filterStatus === "pending_approval") matchStatus = t.status === "pending_approval";
+    else if (filterStatus === "full") matchStatus = t.status === "full";
+    else if (filterStatus === "draft") matchStatus = t.status === "draft" || t.status === "rejected";
+    
     return matchCat && matchStatus && matchSearch;
   });
 
@@ -626,10 +707,10 @@ export default function AdminTourManagementScreen() {
           ))}
         </ScrollView>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.statusTabScroll}>
-          {(["all", "active", "full", "draft"] as const).map(st_ => {
+          {(["all", "active", "pending_approval", "full", "draft"] as const).map(st_ => {
             const isActive = filterStatus === st_;
-            const label = st_ === "all" ? "Tất cả" : st_ === "active" ? "Đang mở" : st_ === "full" ? "Đã đầy" : "Đề xuất HDV";
-            const count = st_ === "draft" ? pendingDrafts.length : st_ === "all" ? tours.length : tours.filter(t => t.status === st_).length;
+            const label = st_ === "all" ? "Tất cả" : st_ === "active" ? "Đang mở" : st_ === "pending_approval" ? "Đề xuất mới" : st_ === "full" ? "Đã đầy" : "Nháp";
+            const count = st_ === "draft" ? tours.filter(t => t.status === "draft" || t.status === "rejected").length : st_ === "all" ? tours.length : tours.filter(t => t.status === st_).length;
             return (
               <TouchableOpacity key={st_} style={[st.statusTabBtn, isActive && st.statusTabBtnActive]} onPress={() => setFilterStatus(st_)}>
                 <Text style={[st.statusTabTxt, isActive && st.statusTabTxtActive]}>{label}</Text>
@@ -737,11 +818,69 @@ export default function AdminTourManagementScreen() {
             </View>
 
             <ScrollView style={st.modalBody} showsVerticalScrollIndicator={false}>
+              {editingTour?.status === 'pending_approval' && editingTour?.resubmitNote && (
+                <View style={{backgroundColor: '#eaf0ff', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#4f7cff', marginBottom: 16}}>
+                   <Text style={{color: '#1f2a58', fontWeight: '800', fontSize: 13}}>Ghi chú từ HDV {editingTour.proposedByGuideName}:</Text>
+                   <Text style={{color: '#4f7cff', fontSize: 13, marginTop: 4, fontStyle: 'italic'}}>"{editingTour.resubmitNote}"</Text>
+                </View>
+              )}
               <Text style={st.inputLabel}>Tên Tour <Text style={{ color: "#ef4444" }}>*</Text></Text>
               <TextInput style={st.input} value={editingTour.name} onChangeText={(t) => setEditingTour(prev => ({ ...prev, name: t }))} placeholder="VD: Sapa 3N2Đ..." placeholderTextColor="#b0bdd8" />
 
+              {/* ── TRƯỜNG NHẬP ẢNH MỚI ── */}
+              <Text style={st.inputLabel}>Ảnh đại diện Tour (Link URL)</Text>
+              <TextInput 
+                style={st.input} 
+                value={editingTour.image || ""} 
+                onChangeText={(t) => setEditingTour(prev => ({ ...prev, image: t }))} 
+                placeholder="https://..." 
+                placeholderTextColor="#b0bdd8" 
+              />
+              
               <Text style={st.inputLabel}>Mô tả chi tiết</Text>
               <TextInput style={[st.input, { height: 75, textAlignVertical: "top" }]} multiline value={editingTour.description || ""} onChangeText={(t) => setEditingTour(prev => ({ ...prev, description: t }))} placeholder="Nhập lịch trình tóm tắt..." placeholderTextColor="#b0bdd8" />
+
+              {/* ══ DANH MỤC — chọn 1 ══ */}
+              <Text style={st.inputLabel}>Danh mục <Text style={{ color: "#ef4444" }}>*</Text></Text>
+              <View style={st.chipRow}>
+                {CATEGORIES_FORM.map(cat => {
+                  const isSelected = editingTour.category === cat;
+                  const color = CATEGORY_COLORS[cat] || "#4f7cff";
+                  return (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[st.catChip, isSelected && { backgroundColor: color, borderColor: color }]}
+                      onPress={() => setEditingTour(prev => ({ ...prev, category: cat, color }))}>
+                      {isSelected && <View style={st.catChipDot} />}
+                      <Text style={[st.catChipTxt, isSelected && st.catChipTxtActive]}>{cat}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* ══ TAGS — chọn nhiều ══ */}
+              <Text style={st.inputLabel}>Tags đặc trưng <Text style={{ color: "#94a3b8", fontWeight: "500" }}>(chọn nhiều)</Text></Text>
+              <View style={st.chipRow}>
+                {ALL_TAGS.map(tag => {
+                  const isSelected = (editingTour.tags || []).includes(tag);
+                  return (
+                    <TouchableOpacity
+                      key={tag}
+                      style={[st.tagChip, isSelected && st.tagChipActive]}
+                      onPress={() => {
+                        const current = editingTour.tags || [];
+                        const next = current.includes(tag)
+                          ? current.filter(t => t !== tag)
+                          : [...current, tag];
+                        setEditingTour(prev => ({ ...prev, tags: next }));
+                      }}>
+                      <Text style={[st.tagChipTxt, isSelected && st.tagChipTxtActive]}>
+                        {isSelected ? "✓ " : ""}{tag}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
               {/* ══════════════════════════════════════════════════════ */}
               {/* CẤU HÌNH ĐIỂM THƯỞNG LOYALTY                          */}
@@ -989,10 +1128,23 @@ export default function AdminTourManagementScreen() {
                 ))}
               </View>
 
-              <TouchableOpacity style={st.saveBtn} onPress={saveTour}>
-                <Ionicons name="save" size={18} color="#fff" />
-                <Text style={st.saveBtnTxt}>Lưu Thông tin</Text>
-              </TouchableOpacity>
+              {editingTour?.status === 'pending_approval' ? (
+                 <View style={{flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 28}}>
+                    <TouchableOpacity style={[st.saveBtn, {flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ef4444', marginTop: 0}]} onPress={() => {setProposalRejectReason(""); setRejectProposalModal(true);}}>
+                      <Ionicons name="close-circle" size={20} color="#ef4444" />
+                      <Text style={[st.saveBtnTxt, {color: '#ef4444'}]}>Từ chối</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[st.saveBtn, {flex: 1, backgroundColor: '#10b981', marginTop: 0}]} onPress={() => { setModalVisible(false); handleApproveProposal(editingTour.id!); }}>
+                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                      <Text style={st.saveBtnTxt}>Duyệt & Lưu</Text>
+                    </TouchableOpacity>
+                 </View>
+              ) : (
+                 <TouchableOpacity style={st.saveBtn} onPress={saveTour}>
+                   <Ionicons name="save" size={18} color="#fff" />
+                   <Text style={st.saveBtnTxt}>Lưu Thông tin</Text>
+                 </TouchableOpacity>
+              )}
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -1267,6 +1419,29 @@ export default function AdminTourManagementScreen() {
             )}
           </View>
         </View>
+      </Modal>
+
+      <Modal visible={rejectProposalModal} transparent animationType="fade">
+        <KeyboardAvoidingView style={st.confirmOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <View style={st.confirmBox}>
+            <View style={[st.confirmIconWrap, { backgroundColor: "#fee2e2" }]}><Ionicons name="warning" size={30} color="#ef4444" /></View>
+            <Text style={st.confirmTitle}>Từ chối Đề xuất Tour</Text>
+            <Text style={{ fontSize: 13, color: "#64748b", marginBottom: 10, textAlign: "center" }}>Vui lòng ghi rõ lý do từ chối để HDV chỉnh sửa lại.</Text>
+            <TextInput
+              style={[st.input, { width: "100%", height: 80, textAlignVertical: "top", marginBottom: 16 }]}
+              multiline
+              placeholder="VD: Lịch trình chưa hợp lý, cần bổ sung..."
+              value={proposalRejectReason}
+              onChangeText={setProposalRejectReason}
+            />
+            <View style={st.confirmActionRow}>
+              <TouchableOpacity style={st.confirmCancelBtn} onPress={() => setRejectProposalModal(false)}><Text style={st.confirmCancelBtnTxt}>Hủy</Text></TouchableOpacity>
+              <TouchableOpacity style={[st.confirmSubmitBtn, { backgroundColor: "#ef4444", opacity: proposalRejectReason.trim() ? 1 : 0.5 }]} disabled={!proposalRejectReason.trim()} onPress={handleRejectProposalSubmit}>
+                <Text style={st.confirmSubmitBtnTxt}>Gửi từ chối</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <AdminTabBar role="admin" activeRoute="admin-tour-management" />
@@ -1625,4 +1800,15 @@ const st = StyleSheet.create({
   assignedItem: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   assignedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#10b981" },
   assignedName: { fontSize: 13, color: "#065f46", fontWeight: "700" },
+
+  // ── CATEGORY & TAG CHIPS ──────────────────────────────────────────────
+  chipRow:        { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4, marginTop: 2 },
+  catChip:        { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: "#f1f5f9", borderWidth: 1.5, borderColor: "#e2e8f0" },
+  catChipDot:     { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
+  catChipTxt:     { fontSize: 12, fontWeight: "700", color: "#475569" },
+  catChipTxtActive: { color: "#fff" },
+  tagChip:        { paddingHorizontal: 11, paddingVertical: 7, borderRadius: 20, backgroundColor: "#f1f5f9", borderWidth: 1, borderColor: "#e2e8f0" },
+  tagChipActive:  { backgroundColor: "#1f2a58", borderColor: "#1f2a58" },
+  tagChipTxt:     { fontSize: 12, fontWeight: "600", color: "#475569" },
+  tagChipTxtActive: { color: "#fff" },
 });

@@ -1,13 +1,12 @@
 /**
  * app/(tabs)/bookings.tsx
- * Lịch sử Đặt Tour của Guest (Phiên bản Hoàn Chỉnh 100%)
- * ĐÃ FIX LỖI BẢO MẬT: Chỉ hiển thị đơn của User hiện tại, không làm mất đơn của người khác khi Hủy/Dời lịch.
+ * Lịch sử Đặt Tour của Guest - Đã chuyển Đánh giá sang trang riêng (guest_post_tour)
  */
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@/constants/storage-helper'; 
 import { useFocusEffect, useRouter, Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions, Modal, TextInput, Alert } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions, Modal, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function GuestBookingsScreen() {
@@ -17,42 +16,33 @@ export default function GuestBookingsScreen() {
   const scale = Math.min(width / 375, 1.2);
   const s = useMemo(() => getStyles(scale), [scale]);
 
-  // States Dữ liệu
   const [bookings, setBookings] = useState<any[]>([]);
   const [tours, setTours] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [segment, setSegment] = useState<'upcoming' | 'active' | 'done'>('upcoming');
 
-  // States Modals Tính năng
   const [cancelModal, setCancelModal] = useState<any>(null);
   const [rescheduleModal, setRescheduleModal] = useState<any>(null);
-  const [reviewModal, setReviewModal] = useState<any>(null);
 
-  // States Đánh giá
-  const [rating, setRating] = useState(5);
-  const [reviewText, setReviewText] = useState('');
-  const [tipAmount, setTipAmount] = useState(0);
-
-  // States Nhắc nhở & Đếm ngược
   const [now, setNow] = useState(new Date().getTime());
   const [reminderModal, setReminderModal] = useState<any>(null);
   const [ackKeys, setAckKeys] = useState<string[]>([]);
 
   useFocusEffect(useCallback(() => {
     const loadPrivateBookings = async () => {
-      // 1. Lấy thông tin User đang đăng nhập
       const rawUser = await AsyncStorage.getItem('@app_current_user');
       const currentUser = rawUser ? JSON.parse(rawUser) : null;
 
-      // 2. Lấy kho đơn hàng chung và LỌC
       const rawBookings = await AsyncStorage.getItem('@guest_bookings');
       if (rawBookings && currentUser) {
         const allBookings = JSON.parse(rawBookings);
-        // Lọc ra các đơn hàng thuộc về accountId hoặc email của User hiện tại
         const myBookings = allBookings.filter((b: any) => 
           b.accountId === currentUser.accountId || 
-          b.customerEmail === currentUser.email
+          b.guestId === currentUser.accountId ||
+          b.userId === currentUser.accountId ||
+          (b.customerEmail && b.customerEmail.toLowerCase() === currentUser.email.toLowerCase())
         );
+        myBookings.sort((a:any, b:any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         setBookings(myBookings);
       }
     };
@@ -63,7 +53,6 @@ export default function GuestBookingsScreen() {
     AsyncStorage.getItem('@guest_acked_reminders').then(raw => { if (raw) setAckKeys(JSON.parse(raw)); });
   }, []));
 
-  // ENGINE REALTIME (Đếm ngược & Check mốc thông báo)
   useEffect(() => {
     const timer = setInterval(() => {
       const currentTime = new Date().getTime();
@@ -71,31 +60,22 @@ export default function GuestBookingsScreen() {
 
       if (!reminderModal) {
         for (const b of bookings) {
-          if (!['pending', 'paid', 'accepted'].includes(b.status)) continue;
+          if (!['pending', 'paid', 'confirmed', 'accepted'].includes(b.status)) continue;
           
-          const startTime = new Date(b.startTime).getTime();
+          const startTime = new Date(b.startTime || b.tourDate || Date.now()).getTime();
           const diffMs = startTime - currentTime;
           if (diffMs <= 0) continue;
 
           const diffHours = diffMs / (1000 * 60 * 60);
           const diffMins = diffMs / (1000 * 60);
-
           let thresholdObj = null;
 
-          if (diffHours <= 24 && diffHours > 23.98 && !ackKeys.includes(`${b.id}-24h`)) {
-            thresholdObj = { id: b.id, tourName: b.tourName, time: '24 giờ', key: `${b.id}-24h` };
-          } else if (diffHours <= 12 && diffHours > 11.98 && !ackKeys.includes(`${b.id}-12h`)) {
-            thresholdObj = { id: b.id, tourName: b.tourName, time: '12 giờ', key: `${b.id}-12h` };
-          } else if (diffHours <= 1 && diffHours > 0.98 && !ackKeys.includes(`${b.id}-1h`)) {
-            thresholdObj = { id: b.id, tourName: b.tourName, time: '1 tiếng', key: `${b.id}-1h` };
-          } else if (diffMins <= 15 && diffMins > 14.8 && !ackKeys.includes(`${b.id}-15m`)) {
-            thresholdObj = { id: b.id, tourName: b.tourName, time: '15 phút', key: `${b.id}-15m` };
-          }
+          if (diffHours <= 24 && diffHours > 23.98 && !ackKeys.includes(`${b.id}-24h`)) thresholdObj = { id: b.id, tourName: b.tourName, time: '24 giờ', key: `${b.id}-24h` };
+          else if (diffHours <= 12 && diffHours > 11.98 && !ackKeys.includes(`${b.id}-12h`)) thresholdObj = { id: b.id, tourName: b.tourName, time: '12 giờ', key: `${b.id}-12h` };
+          else if (diffHours <= 1 && diffHours > 0.98 && !ackKeys.includes(`${b.id}-1h`)) thresholdObj = { id: b.id, tourName: b.tourName, time: '1 tiếng', key: `${b.id}-1h` };
+          else if (diffMins <= 15 && diffMins > 14.8 && !ackKeys.includes(`${b.id}-15m`)) thresholdObj = { id: b.id, tourName: b.tourName, time: '15 phút', key: `${b.id}-15m` };
 
-          if (thresholdObj) {
-            setReminderModal(thresholdObj);
-            break;
-          }
+          if (thresholdObj) { setReminderModal(thresholdObj); break; }
         }
       }
     }, 1000);
@@ -111,9 +91,9 @@ export default function GuestBookingsScreen() {
   };
 
   const getCountdownStatus = (startTimeStr: string) => {
+    if (!startTimeStr) return null;
     const diff = new Date(startTimeStr).getTime() - now;
     if (diff < 0) return { text: "Đã bắt đầu / Quá giờ", color: "#10b981", icon: "play-circle" };
-
     const d = Math.floor(diff / (1000 * 60 * 60 * 24));
     const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
     const m = Math.floor((diff / 1000 / 60) % 60);
@@ -124,50 +104,31 @@ export default function GuestBookingsScreen() {
     return { text: `Khẩn trương: Còn ${m} phút ${s} giây`, color: "#ef4444", icon: "flame" };
   };
 
-  // FIX LỖI BẢO MẬT: Cập nhật an toàn trên Kho dữ liệu chung
   const executeCancel = async () => {
     if (!cancelModal) return;
-    
-    // 1. Lấy toàn bộ kho dữ liệu gốc (bao gồm đơn của người khác)
     const rawAll = await AsyncStorage.getItem('@guest_bookings');
     const allBookings = rawAll ? JSON.parse(rawAll) : [];
     
-    // 2. Chỉnh sửa riêng cái đơn cần hủy
     const updatedAll = allBookings.map((b: any) => b.id === cancelModal.id ? { ...b, status: 'cancelled' } : b);
-    
-    // 3. Lưu trả lại kho chung
     await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updatedAll));
-    
-    // 4. Cập nhật lại màn hình của khách hiện tại
     setBookings(bookings.map(b => b.id === cancelModal.id ? { ...b, status: 'cancelled' } : b));
     
     setCancelModal(null);
     Alert.alert('Thành công', 'Đã hủy đơn đặt tour.');
   };
 
-  // FIX LỖI BẢO MẬT: Cập nhật an toàn trên Kho dữ liệu chung
   const executeReschedule = async (newSch: any) => {
     if (!rescheduleModal) return;
-
     const rawAll = await AsyncStorage.getItem('@guest_bookings');
     const allBookings = rawAll ? JSON.parse(rawAll) : [];
     
     const updatedAll = allBookings.map((b: any) => b.id === rescheduleModal.id ? { 
-      ...b, 
-      scheduleId: newSch.id, 
-      startTime: newSch.startTime, 
-      endTime: newSch.endTime,
-      date: new Date(newSch.startTime).toLocaleDateString('vi-VN')
+      ...b, scheduleId: newSch.id, startTime: newSch.startTime, endTime: newSch.endTime, date: new Date(newSch.startTime).toLocaleDateString('vi-VN')
     } : b);
 
     await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updatedAll));
-    
     setBookings(bookings.map(b => b.id === rescheduleModal.id ? { 
-      ...b, 
-      scheduleId: newSch.id, 
-      startTime: newSch.startTime, 
-      endTime: newSch.endTime,
-      date: new Date(newSch.startTime).toLocaleDateString('vi-VN')
+      ...b, scheduleId: newSch.id, startTime: newSch.startTime, endTime: newSch.endTime, date: new Date(newSch.startTime).toLocaleDateString('vi-VN')
     } : b));
 
     setRescheduleModal(null);
@@ -180,71 +141,17 @@ export default function GuestBookingsScreen() {
     return t.schedules.filter((sch:any) => new Date(sch.startTime).getTime() > new Date().getTime());
   };
 
-  const handleReviewSubmit = async () => {
-    try {
-      const newReview = {
-        id: `rev-${Date.now()}`,
-        bookingId: reviewModal.id,
-        guideId: reviewModal.guideId,
-        guestName: reviewModal.customerName || 'Khách hàng',
-        rating, reviewText, tipAmount,
-        createdAt: new Date().toISOString()
-      };
-      
-      const newReviews = [newReview, ...reviews];
-      setReviews(newReviews);
-      await AsyncStorage.setItem('@app_reviews', JSON.stringify(newReviews));
-
-      if (tipAmount > 0) {
-        const wRaw = await AsyncStorage.getItem('@guide_wallet');
-        const wallet = wRaw ? JSON.parse(wRaw) : { balance: 0, transactions: [] };
-        wallet.balance += tipAmount;
-        wallet.transactions.unshift({
-          id: `tx-tip-${Date.now()}`, type: 'tip', amount: tipAmount,
-          desc: `Tiền Tip từ khách ${reviewModal.customerName}`, createdAt: new Date().toISOString()
-        });
-        await AsyncStorage.setItem('@guide_wallet', JSON.stringify(wallet));
-      }
-
-      // Đọc điểm từ Tour và cộng vào Profile cá nhân
-      const tRaw = await AsyncStorage.getItem('@app_tours');
-      let reviewPoints = 50; 
-      if (tRaw) {
-        const allTours = JSON.parse(tRaw);
-        const currentTour = allTours.find((t:any) => t.id === reviewModal?.tourId);
-        if (currentTour && currentTour.reviewPoints) reviewPoints = currentTour.reviewPoints;
-      }
-
-      const pRaw = await AsyncStorage.getItem('@app_profile');
-      const profile = pRaw ? JSON.parse(pRaw) : {};
-      profile.loyaltyPoints = (profile.loyaltyPoints || 0) + reviewPoints;
-      await AsyncStorage.setItem('@app_profile', JSON.stringify(profile));
-
-      const hRaw = await AsyncStorage.getItem("@guest_loyalty_history");
-      const history = hRaw ? JSON.parse(hRaw) : [];
-      history.unshift({
-        id: `h-rev-${Date.now()}`, type: "earn", points: reviewPoints, 
-        desc: `Đánh giá Tour: ${reviewModal?.tourName || ''}`, date: new Date().toISOString()
-      });
-      await AsyncStorage.setItem("@guest_loyalty_history", JSON.stringify(history));
-
-      setReviewModal(null);
-      Alert.alert('Thành công', `Cảm ơn bạn đã gửi đánh giá! Bạn được cộng +${reviewPoints} điểm thưởng.`);
-    } catch (e) {
-      console.log(e);
-    }
-  };
-
   const visible = useMemo(() => bookings.filter(b => {
-    if (segment === 'upcoming') return ['pending','paid','accepted'].includes(b.status);
-    if (segment === 'active')   return ['checked-in','on-tour'].includes(b.status);
-    return ['completed','done','cancelled', 'rejected'].includes(b.status);
+    const st = b.status || 'paid';
+    if (segment === 'upcoming') return ['pending', 'paid', 'confirmed', 'accepted'].includes(st);
+    if (segment === 'active')   return ['checked_in', 'checked-in', 'on_tour', 'on-tour'].includes(st);
+    return ['completed', 'done', 'cancelled', 'rejected'].includes(st);
   }), [bookings, segment]);
 
   const safeDate = (dateStr: string) => {
     if (!dateStr) return "Chưa xác định";
     const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? "Chưa xác định" : d.toLocaleString('vi-VN');
+    return isNaN(d.getTime()) ? "Chưa xác định" : d.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   return (
@@ -268,14 +175,14 @@ export default function GuestBookingsScreen() {
         </View>
 
         {visible.map(b => {
-          const cd = segment === 'upcoming' ? getCountdownStatus(b.startTime) : null;
+          const cd = segment === 'upcoming' ? getCountdownStatus(b.startTime || b.tourDate) : null;
           const hasReviewed = reviews.some(r => r.bookingId === b.id);
 
           return (
           <View key={b.id} style={s.card}>
             <View style={s.cardHeader}>
                <Text style={s.bookingId}>#{b.id}</Text>
-               <View style={s.statusBadge}><Text style={s.statusTxt}>{b.status.toUpperCase()}</Text></View>
+               <View style={s.statusBadge}><Text style={s.statusTxt}>{(b.status || 'PAID').toUpperCase()}</Text></View>
             </View>
             <View style={s.cardBody}>
               <Text style={s.tourName}>{b.tourName || "Tour không rõ"}</Text>
@@ -287,8 +194,8 @@ export default function GuestBookingsScreen() {
                 </View>
               )}
 
-              <View style={s.metaRow}><Ionicons name="calendar" size={14} color="#4f7cff" /><Text style={s.metaTxt}>{safeDate(b.startTime)}</Text></View>
-              <View style={s.metaRow}><Ionicons name="person" size={14} color="#4f7cff" /><Text style={s.metaTxt}>HDV: {b.guideName || "Hệ thống sắp xếp"}</Text></View>
+              <View style={s.metaRow}><Ionicons name="calendar" size={14} color="#4f7cff" /><Text style={s.metaTxt}>{safeDate(b.startTime || b.tourDate)}</Text></View>
+              <View style={s.metaRow}><Ionicons name="person" size={14} color="#4f7cff" /><Text style={s.metaTxt}>HDV: {b.guideName || "Hệ thống tự động xếp"}</Text></View>
             </View>
             
             <View style={s.cardActions}>
@@ -307,13 +214,14 @@ export default function GuestBookingsScreen() {
                 </>
               )}
 
+              {/* NÚT ĐÁNH GIÁ & SỬA ĐÁNH GIÁ */}
               {segment === 'done' && (b.status === 'completed' || b.status === 'done') && (
                 <TouchableOpacity 
                   style={[s.actionBtn, { backgroundColor: hasReviewed ? '#f0fdf4' : '#fffbeb' }]} 
-                  onPress={() => !hasReviewed ? setReviewModal(b) : Alert.alert('Thông báo', 'Bạn đã đánh giá tour này rồi.')}
+                  onPress={() => router.push({ pathname: '/guest_post_tour', params: { bookingId: b.id } } as any)}
                 >
                   <Text style={[s.actionTxt, { color: hasReviewed ? '#16a34a' : '#d97706' }]}>
-                    {hasReviewed ? 'Đã đánh giá' : 'Viết đánh giá'}
+                    {hasReviewed ? 'Xem / Sửa đánh giá' : 'Viết đánh giá'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -323,7 +231,7 @@ export default function GuestBookingsScreen() {
         {visible.length === 0 && <Text style={{textAlign: 'center', color: '#7a8cc2', marginTop: 40}}>Không có đơn đặt nào.</Text>}
       </ScrollView>
 
-      {/* POPUP NHẮC NHỞ TỰ ĐỘNG */}
+      {/* CÁC MODAL GIỮ NGUYÊN */}
       <Modal visible={!!reminderModal} transparent animationType="fade">
         <View style={s.popupOverlay}>
           <View style={s.popupBox}>
@@ -332,7 +240,7 @@ export default function GuestBookingsScreen() {
             </View>
             <Text style={s.popupTitle}>Sắp đến giờ đi Tour!</Text>
             <Text style={s.popupMessage}>
-              Chuyến đi <Text style={{fontWeight: 'bold', color: '#1f2a58'}}>{reminderModal?.tourName}</Text> sẽ bắt đầu trong vòng <Text style={{fontWeight: 'bold', color: '#ef4444'}}>{reminderModal?.time}</Text> nữa. Bạn hãy chuẩn bị hành lý nhé!
+              Chuyến đi <Text style={{fontWeight: 'bold', color: '#1f2a58'}}>{reminderModal?.tourName}</Text> sẽ bắt đầu trong vòng <Text style={{fontWeight: 'bold', color: '#ef4444'}}>{reminderModal?.time}</Text> nữa.
             </Text>
             <TouchableOpacity style={[s.popupSubmitBtn, {backgroundColor: '#f59e0b', width: '100%'}]} onPress={handleAckReminder}>
               <Text style={s.popupSubmitBtnTxt}>Tôi đã sẵn sàng</Text>
@@ -341,13 +249,12 @@ export default function GuestBookingsScreen() {
         </View>
       </Modal>
 
-      {/* POPUP HỦY ĐƠN */}
       <Modal visible={!!cancelModal} transparent animationType="fade">
         <View style={s.popupOverlay}>
           <View style={s.popupBox}>
             <Ionicons name="warning" size={50} color="#ef4444" />
             <Text style={s.popupTitle}>Hủy Đặt Tour</Text>
-            <Text style={s.popupMessage}>Bạn có chắc chắn muốn hủy đơn #{cancelModal?.id} không? Bạn sẽ phải đặt lại từ đầu nếu đổi ý.</Text>
+            <Text style={s.popupMessage}>Bạn có chắc chắn muốn hủy đơn #{cancelModal?.id} không?</Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity style={s.popupCancelBtn} onPress={() => setCancelModal(null)}><Text style={s.popupCancelBtnTxt}>Đóng</Text></TouchableOpacity>
               <TouchableOpacity style={[s.popupSubmitBtn, {backgroundColor: '#ef4444'}]} onPress={executeCancel}><Text style={s.popupSubmitBtnTxt}>Xác nhận Hủy</Text></TouchableOpacity>
@@ -356,7 +263,6 @@ export default function GuestBookingsScreen() {
         </View>
       </Modal>
 
-      {/* POPUP DỜI NGÀY */}
       <Modal visible={!!rescheduleModal} transparent animationType="slide">
         <View style={s.popupOverlay}>
           <View style={[s.popupBox, { maxHeight: '80%', padding: 20 }]}>
@@ -366,7 +272,6 @@ export default function GuestBookingsScreen() {
               {getTourSchedules(rescheduleModal?.tourId).map((sch: any) => (
                 <TouchableOpacity key={sch.id} style={s.schCard} onPress={() => executeReschedule(sch)}>
                   <Text style={{ fontSize: Math.round(14 * scale), fontWeight: '800', color: '#1f2a58' }}>{new Date(sch.startTime).toLocaleString('vi-VN')}</Text>
-                  <Text style={{ fontSize: Math.round(12 * scale), color: '#64748b' }}>Chạm để chọn</Text>
                 </TouchableOpacity>
               ))}
               {getTourSchedules(rescheduleModal?.tourId).length === 0 && <Text style={{ textAlign: 'center', color: '#ef4444' }}>Tour này hiện không có lịch trình trống nào khác.</Text>}
@@ -376,38 +281,6 @@ export default function GuestBookingsScreen() {
         </View>
       </Modal>
 
-      {/* POPUP ĐÁNH GIÁ */}
-      <Modal visible={!!reviewModal} transparent animationType="slide">
-         <View style={s.popupOverlay}>
-           <View style={[s.popupBox, { padding: 20 }]}>
-              <Text style={s.popupTitle}>Đánh giá chuyến đi</Text>
-              <Text style={s.popupMessage}>Đánh giá HDV {reviewModal?.guideName}</Text>
-              
-              <View style={{flexDirection: 'row', gap: 10, marginBottom: 20}}>
-                {[1,2,3,4,5].map(star => (
-                  <TouchableOpacity key={star} onPress={() => setRating(star)}>
-                    <Ionicons name={star <= rating ? "star" : "star-outline"} size={40} color="#f59e0b" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TextInput style={s.input} multiline placeholder="Viết nhận xét..." value={reviewText} onChangeText={setReviewText} />
-              
-              <Text style={{alignSelf: 'flex-start', fontWeight: 'bold', color: '#1f2a58', marginBottom: 10}}>Tặng Tip (Tùy chọn):</Text>
-              <View style={{flexDirection: 'row', gap: 10, marginBottom: 20, width: '100%'}}>
-                {[0, 50000, 100000].map(amt => (
-                   <TouchableOpacity key={amt} style={[s.tipBtn, tipAmount === amt && s.tipBtnActive]} onPress={() => setTipAmount(amt)}>
-                     <Text style={[s.tipTxt, tipAmount === amt && s.tipTxtActive]}>{amt === 0 ? 'Không Tip' : `${amt/1000}K`}</Text>
-                   </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
-                <TouchableOpacity style={s.popupCancelBtn} onPress={() => setReviewModal(null)}><Text style={s.popupCancelBtnTxt}>Hủy</Text></TouchableOpacity>
-                <TouchableOpacity style={[s.popupSubmitBtn, {backgroundColor: '#f59e0b'}]} onPress={handleReviewSubmit}><Text style={s.popupSubmitBtnTxt}>Gửi đánh giá</Text></TouchableOpacity>
-              </View>
-           </View>
-         </View>
-      </Modal>
     </View>
   );
 }
@@ -444,14 +317,9 @@ const getStyles = (scale: number) => {
     popupBox: { backgroundColor: "#fff", width: "100%", borderRadius: sz(24), padding: sz(24), alignItems: "center", elevation: 10 },
     popupTitle: { fontSize: sz(18), fontWeight: "900", color: "#1f2a58", marginTop: sz(16), marginBottom: sz(8) },
     popupMessage: { fontSize: sz(14), color: "#64748b", textAlign: "center", marginBottom: sz(24), lineHeight: sz(22) },
-    input: { backgroundColor: '#f1f5f9', borderRadius: sz(12), width: '100%', minHeight: sz(80), padding: sz(14), textAlignVertical: 'top', color: '#1f2a58', marginBottom: sz(20) },
     popupCancelBtn: { flex: 1, height: sz(48), borderRadius: sz(14), backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center" },
     popupCancelBtnTxt: { color: "#64748b", fontSize: sz(15), fontWeight: "800" },
     popupSubmitBtn: { flex: 1, height: sz(48), borderRadius: sz(14), alignItems: "center", justifyContent: "center" },
     popupSubmitBtnTxt: { color: "#fff", fontSize: sz(15), fontWeight: "900" },
-    tipBtn: { flex: 1, height: sz(44), borderRadius: sz(12), borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
-    tipBtnActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
-    tipTxt: { fontWeight: '700', color: '#64748b' },
-    tipTxtActive: { color: '#fff' }
   });
 };
