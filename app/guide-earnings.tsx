@@ -1,7 +1,6 @@
 /**
  * app/guide-earnings.tsx
- * Ví thu nhập HDV - Tích hợp tính năng Rút Tiền chuẩn quy trình (Chờ Duyệt)
- * ĐÃ LIÊN KẾT TRỰC TIẾP VỚI KHO DỮ LIỆU @admin_payouts CỦA KẾ TOÁN
+ * Ví thu nhập HDV - Tự động đồng bộ trạng thái rút tiền từ kho của Admin
  */
 import { GuideTabBar } from "@/components/GuideTabBar";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,17 +21,52 @@ export default function GuideEarnings() {
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
 
+  // HÀM TỰ ĐỘNG QUÉT VÀ ĐỒNG BỘ TỪ ADMIN
   const loadWallet = async () => {
     try {
       const wRaw = await AsyncStorage.getItem('@guide_wallet');
-      if (wRaw) {
-        const parsed = JSON.parse(wRaw);
-        setWallet({
-          balance: parsed.balance || 0,
-          transactions: parsed.transactions || []
-        });
+      let parsedWallet = wRaw ? JSON.parse(wRaw) : { balance: 0, transactions: [] };
+
+      const pRaw = await AsyncStorage.getItem('@admin_payouts');
+      const adminPayouts = pRaw ? JSON.parse(pRaw) : [];
+
+      let needsSave = false;
+
+      // Quét tất cả giao dịch trong ví
+      parsedWallet.transactions = parsedWallet.transactions.map((tx: any) => {
+        // Nếu là lệnh rút tiền và đang chờ duyệt
+        if ((tx.type === 'withdraw' || tx.type === 'rejected') && tx.id.startsWith('po-')) {
+          const adminData = adminPayouts.find((p: any) => p.id === tx.id);
+          
+          if (adminData && tx.status !== adminData.status) {
+            needsSave = true;
+            tx.status = adminData.status; // Cập nhật trạng thái mới nhất từ Admin
+
+            if (adminData.status === 'rejected') {
+              tx.type = 'rejected';
+              tx.desc = `Bị từ chối: Lệnh rút bị hủy - đã hoàn tiền${adminData.rejectReason ? ` (Lý do: ${adminData.rejectReason})` : ''}`;
+              // Chỉ cộng lại tiền 1 lần khi trạng thái vừa chuyển sang rejected
+              parsedWallet.balance += tx.amount; 
+            } else if (adminData.status === 'approved') {
+              tx.desc = `Thành công: Đã chuyển tiền về tài khoản ngân hàng lúc ${adminData.processedDate || new Date().toLocaleString('vi-VN')}`;
+            }
+          }
+        }
+        return tx;
+      });
+
+      // Nếu có sự thay đổi trạng thái, lưu ngược lại vào bộ nhớ của HDV
+      if (needsSave) {
+        await AsyncStorage.setItem('@guide_wallet', JSON.stringify(parsedWallet));
       }
-    } catch (e) {}
+
+      setWallet({
+        balance: parsedWallet.balance || 0,
+        transactions: parsedWallet.transactions || []
+      });
+    } catch (e) {
+      console.log("Error loading wallet", e);
+    }
   };
 
   useFocusEffect(useCallback(() => { loadWallet(); }, []));
@@ -46,12 +80,10 @@ export default function GuideEarnings() {
 
     try {
       const newWallet = { ...wallet };
-      const txId = `po-${Date.now()}`; // Đổi ID giống Admin Payout để đồng bộ dễ dàng
+      const txId = `po-${Date.now()}`; 
       
-      // 1. Trừ tiền khỏi số dư chính
       newWallet.balance -= amt;
       
-      // 2. Ghi nhận giao dịch với trạng thái PENDING
       newWallet.transactions.unshift({
         id: txId,
         type: 'withdraw',
@@ -63,7 +95,6 @@ export default function GuideEarnings() {
 
       await AsyncStorage.setItem('@guide_wallet', JSON.stringify(newWallet));
       
-      // 3. ĐẨY LỆNH RÚT TIỀN SANG TRANG CỦA ADMIN/KẾ TOÁN (@admin_payouts)
       const pRaw = await AsyncStorage.getItem('@guide_profile');
       const profile = pRaw ? JSON.parse(pRaw) : {};
       
@@ -91,15 +122,17 @@ export default function GuideEarnings() {
       
       Alert.alert(
         'Yêu cầu thành công', 
-        'Lệnh rút tiền đã được gửi tới Ban quản trị LocalMate. Tiền sẽ được chuyển về tài khoản ngân hàng của bạn ngay sau khi được kế toán duyệt.'
+        'Lệnh rút tiền đã được gửi. Tiền sẽ được chuyển về tài khoản ngân hàng sau khi duyệt.'
       );
     } catch (e) {}
   };
 
   const getTxStyle = (tx: any) => {
-    // Nếu đang pending (rút tiền chưa duyệt), cho màu xám/vàng
-    if (tx.status === 'pending') return { icon: 'time-outline', color: '#d97706', bg: '#fef3c7', sign: '-' };
-    if (tx.status === 'rejected') return { icon: 'refresh', color: '#64748b', bg: '#f1f5f9', sign: '+' }; // Hoàn tiền
+    if (tx.type === 'withdraw' || tx.type === 'rejected' || tx.status) {
+        if (tx.status === 'pending') return { icon: 'time-outline', color: '#d97706', bg: '#fef3c7', sign: '-', label: 'Chờ duyệt' };
+        if (tx.status === 'approved') return { icon: 'checkmark-circle', color: '#10b981', bg: '#dcfce7', sign: '-', label: 'Đã duyệt' };
+        if (tx.status === 'rejected') return { icon: 'close-circle', color: '#ef4444', bg: '#fee2e2', sign: '+', label: 'Hoàn tiền' };
+    }
 
     switch(tx.type) {
       case 'tour_income': return { icon: 'briefcase', color: '#10b981', bg: '#dcfce7', sign: '+' };
@@ -148,21 +181,34 @@ export default function GuideEarnings() {
         ) : (
           wallet.transactions.map((tx: any) => {
             const style = getTxStyle(tx);
+            const isPending = tx.status === 'pending';
+            const isRejected = tx.status === 'rejected';
+
             return (
-              <View key={tx.id} style={[s.txCard, tx.status === 'pending' && {borderColor: '#fde68a', backgroundColor: '#fffbeb'}]}>
+              <View 
+                key={tx.id} 
+                style={[
+                  s.txCard, 
+                  isPending && {borderColor: '#fde68a', backgroundColor: '#fffbeb'},
+                  isRejected && {borderColor: '#fecaca', backgroundColor: '#fef2f2'}
+                ]}
+              >
                 <View style={[s.txIconBox, { backgroundColor: style.bg }]}>
                   <Ionicons name={style.icon as any} size={20} color={style.color} />
                 </View>
                 <View style={s.txInfo}>
-                  <Text style={s.txDesc} numberOfLines={2}>{tx.desc}</Text>
+                  <Text style={s.txDesc}>{tx.desc}</Text>
                   <Text style={s.txDate}>{safeDate(tx.createdAt)}</Text>
                 </View>
                 <View style={{alignItems: 'flex-end'}}>
-                   <Text style={[s.txAmount, { color: style.sign === '-' ? (tx.status === 'pending' ? '#d97706' : '#ef4444') : '#10b981' }]}>
+                   <Text style={[s.txAmount, { color: style.sign === '-' ? (isPending ? '#d97706' : '#ef4444') : '#10b981' }]}>
                      {style.sign}{(tx.amount || 0).toLocaleString('vi-VN')}đ
                    </Text>
-                   {tx.status === 'pending' && <Text style={{fontSize: 10, color: '#d97706', fontWeight: 'bold', marginTop: 4}}>Chờ Kế toán</Text>}
-                   {tx.status === 'rejected' && <Text style={{fontSize: 10, color: '#64748b', fontWeight: 'bold', marginTop: 4}}>Đã hoàn lại</Text>}
+                   {style.label && (
+                     <View style={{ marginTop: 6, backgroundColor: style.bg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                       <Text style={{ fontSize: 10, color: style.color, fontWeight: '800' }}>{style.label}</Text>
+                     </View>
+                   )}
                 </View>
               </View>
             );

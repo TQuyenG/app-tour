@@ -107,7 +107,7 @@ export default function PublicGuideProfile() {
           <View style={s.statsRow}>
             <View style={s.statItem}>
                <Ionicons name="star" size={20} color="#f59e0b" />
-               <Text style={s.statVal}>{profile.rating || '5.0'}</Text>
+               <Text style={s.statVal}>{Number(profile.rating || 5).toFixed(1)}</Text>
                <Text style={s.statLbl}>Đánh giá</Text>
             </View>
             <View style={s.statDivider} />

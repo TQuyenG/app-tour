@@ -1268,10 +1268,13 @@ export default function AdminTourManagementScreen() {
                               <Text style={st.vneidBadgeTxt}>VNeID xác minh</Text>
                             </View>
                           )}
-                          {profile?.rating && (
+                          {profile?.rating !== undefined && profile?.rating !== null && (
                             <View style={[st.vneidBadge, { backgroundColor: "#fef3c7" }]}>
                               <Ionicons name="star" size={9} color="#d97706" />
-                              <Text style={[st.vneidBadgeTxt, { color: "#d97706" }]}>{profile.rating.toFixed(1)}</Text>
+                              <Text style={[st.vneidBadgeTxt, { color: "#d97706" }]}>
+                                {/* Ép kiểu về Number để an toàn trước khi dùng toFixed */}
+                                {Number(profile.rating).toFixed(1)}
+                              </Text>
                             </View>
                           )}
                           {profile?.tours > 0 && (

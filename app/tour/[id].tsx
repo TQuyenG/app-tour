@@ -215,7 +215,7 @@ export default function TourDetailScreen() {
             </View>
             <View style={s.statBox}>
               <Ionicons name="star" size={18} color="#f59e0b" />
-              <Text style={s.statVal}>{(tour.rating || 5).toFixed(1)}</Text>
+              <Text style={s.statVal}>{Number(tour.rating || 5).toFixed(1)}</Text>
             </View>
           </View>
 
@@ -278,7 +278,7 @@ export default function TourDetailScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={[s.guideName, selectedGuide?.id === g.id && { color: '#fff' }]}>{g.name}</Text>
                           <Text style={[s.guideMeta, selectedGuide?.id === g.id && { color: 'rgba(255,255,255,0.8)' }]}>
-                            ⭐ {g.rating?.toFixed(1)} · {g.experience}
+                             {Number(g.rating || 5).toFixed(1)} · {g.experience}
                           </Text>
                         </View>
 
@@ -313,7 +313,7 @@ export default function TourDetailScreen() {
                           <Text style={s.reviewName}>{r.guestName || "Khách hàng ẩn danh"}</Text>
                           <View style={s.reviewStars}>
                              <Ionicons name="star" size={14} color="#f59e0b" />
-                             <Text style={{color: '#d97706', fontWeight: '800', fontSize: Math.round(13 * scale)}}>{r.tourRating || r.overallRating || r.rating || 5}</Text>
+                             <Text style={{color: '#d97706', fontWeight: '800', fontSize: Math.round(13 * scale)}}>{Number(r.tourRating || r.overallRating || r.rating || 5).toFixed(1)}</Text>
                           </View>
                        </View>
                        <Text style={s.reviewText}>"{r.reviewText || r.comment || 'Tuyệt vời'}"</Text>

@@ -1,21 +1,15 @@
 /**
  * app/admin-payout.tsx
- * Admin quản lý và phê duyệt lệnh rút tiền
- * ĐÃ ĐỒNG BỘ: Sử dụng storage-helper, đồng thời Cập nhật/Hoàn tiền vào ví HDV khi xử lý lệnh
+ * Đã fix lỗi đồng bộ: Tự động khởi tạo và chèn dữ liệu vào ví HDV nếu test bằng Data mẫu.
  */
 import { AdminTabBar } from "@/components/AdminTabBar";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@/constants/storage-helper"; // <-- FIX QUAN TRỌNG: Đồng bộ kho lưu trữ
+import AsyncStorage from "@/constants/storage-helper";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  Modal,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+  Modal, ScrollView, StatusBar, StyleSheet, Text,
+  TextInput, TouchableOpacity, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -26,7 +20,8 @@ type PayoutStatus = "pending" | "approved" | "rejected";
 interface BankInfo { bankName: string; accountNumber: string; accountName: string; }
 interface PayoutRequest {
   id: string; guideId: string; guideName: string; amount: number;
-  requestDate: string; status: PayoutStatus; bankInfo: BankInfo; processedDate?: string;
+  requestDate: string; status: PayoutStatus; bankInfo: BankInfo;
+  processedDate?: string; rejectReason?: string;
 }
 
 const SEED_PAYOUTS: PayoutRequest[] = [
@@ -41,21 +36,18 @@ export default function AdminPayoutScreen() {
   const [requests, setRequests] = useState<PayoutRequest[]>([]);
   const [filter, setFilter] = useState<PayoutStatus | "all">("pending");
   const [selectedReq, setSelectedReq] = useState<PayoutRequest | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [pendingRejectId, setPendingRejectId] = useState<string | null>(null);
 
   const [confirmPopup, setConfirmPopup] = useState<{
     visible: boolean;
     type: "approve" | "reject" | "success" | "error";
-    title: string;
-    message: string;
-    targetId?: string;
-    actionType?: "approved" | "rejected";
+    title: string; message: string;
+    targetId?: string; actionType?: "approved" | "rejected";
   }>({ visible: false, type: "success", title: "", message: "" });
 
-  useFocusEffect(
-    useCallback(() => {
-      loadPayouts();
-    }, [])
-  );
+  useFocusEffect(useCallback(() => { loadPayouts(); }, []));
 
   const loadPayouts = async () => {
     try {
@@ -65,66 +57,99 @@ export default function AdminPayoutScreen() {
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_PAYOUTS));
         setRequests(SEED_PAYOUTS);
       }
-    } catch (e) {
-      setRequests([]);
-    }
+    } catch (e) { setRequests([]); }
   };
 
-  const promptAction = (id: string, newStatus: "approved" | "rejected") => {
+  const promptApprove = (id: string) => {
     setConfirmPopup({
-      visible: true,
-      type: newStatus === "approved" ? "approve" : "reject",
-      title: newStatus === "approved" ? "Xác nhận chuyển khoản" : "Từ chối rút tiền",
-      message: newStatus === "approved" ? "Bạn xác nhận đã chuyển khoản thành công số tiền này cho HDV?" : "Hệ thống sẽ hoàn lại số tiền này vào Ví của HDV. Xác nhận từ chối?",
-      targetId: id,
-      actionType: newStatus
+      visible: true, type: "approve",
+      title: "Xác nhận chuyển khoản",
+      message: "Bạn xác nhận đã chuyển khoản thành công số tiền này cho HDV?",
+      targetId: id, actionType: "approved"
+    });
+  };
+
+  const promptReject = (id: string) => {
+    setPendingRejectId(id);
+    setRejectReason("");
+    setShowRejectInput(true);
+  };
+
+  const confirmReject = () => {
+    if (!pendingRejectId) return;
+    setShowRejectInput(false);
+    setConfirmPopup({
+      visible: true, type: "reject",
+      title: "Từ chối rút tiền",
+      message: `Hệ thống sẽ hoàn lại số tiền này vào Ví của HDV.${rejectReason ? `\nLý do: "${rejectReason}"` : ""} Xác nhận từ chối?`,
+      targetId: pendingRejectId, actionType: "rejected"
     });
   };
 
   const executeAction = async () => {
     if (!confirmPopup.targetId || !confirmPopup.actionType) return;
+    const actionType = confirmPopup.actionType;
+    const targetId = confirmPopup.targetId;
+    
     try {
-      const targetReq = requests.find(r => r.id === confirmPopup.targetId);
-      
+      const targetReq = requests.find(r => r.id === targetId);
+      if (!targetReq) return;
+
       // 1. Cập nhật phiếu bên Admin
-      const updated = requests.map(req => {
-        if (req.id === confirmPopup.targetId) {
-          return { ...req, status: confirmPopup.actionType as PayoutStatus, processedDate: new Date().toLocaleString("vi-VN") };
-        }
-        return req;
-      });
+      const processedDate = new Date().toLocaleString("vi-VN");
+      const updated = requests.map(req =>
+        req.id === targetId
+          ? { ...req, status: actionType as PayoutStatus, processedDate, rejectReason: actionType === 'rejected' ? rejectReason : undefined }
+          : req
+      );
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       setRequests(updated);
 
       // 2. ĐỒNG BỘ NGƯỢC VỀ VÍ HDV (@guide_wallet)
-      // Trong thực tế sẽ map bằng guideId, ở demo này dùng @guide_wallet cục bộ
-      if (targetReq) {
-        const wRaw = await AsyncStorage.getItem('@guide_wallet');
-        if (wRaw) {
-          let wallet = JSON.parse(wRaw);
-          let txIndex = wallet.transactions.findIndex((t: any) => t.id === targetReq.id);
-          
-          if (txIndex > -1) {
-            wallet.transactions[txIndex].status = confirmPopup.actionType;
-            
-            if (confirmPopup.actionType === 'rejected') {
-               // Nếu Admin từ chối -> Hoàn lại tiền vào số dư khả dụng
-               wallet.balance += targetReq.amount;
-               wallet.transactions[txIndex].desc = 'Bị từ chối: Lệnh rút tiền bị hủy (Đã hoàn tiền)';
-               wallet.transactions[txIndex].type = 'rejected'; // Đổi type để hiện icon hoàn tiền
-            } else {
-               // Nếu Admin duyệt -> Cập nhật mô tả thành công
-               wallet.transactions[txIndex].desc = 'Thành công: Đã chuyển tiền về Tài khoản Ngân hàng';
-            }
-            await AsyncStorage.setItem('@guide_wallet', JSON.stringify(wallet));
-          }
+      // FIX: Đảm bảo khởi tạo ví nếu chưa có, để test seed data không bị lỗi
+      const wRaw = await AsyncStorage.getItem('@guide_wallet');
+      let wallet = wRaw ? JSON.parse(wRaw) : { balance: 0, transactions: [] };
+      if (!Array.isArray(wallet.transactions)) wallet.transactions = [];
+
+      const txIndex = wallet.transactions.findIndex((t: any) => t.id === targetId);
+
+      if (txIndex > -1) {
+        // Cập nhật giao dịch đã tồn tại (Khi HDV thực sự đặt lệnh)
+        wallet.transactions[txIndex].status = actionType;
+
+        if (actionType === 'rejected') {
+          wallet.balance = (wallet.balance || 0) + targetReq.amount;
+          wallet.transactions[txIndex].desc = `Bị từ chối: Lệnh rút bị hủy - đã hoàn tiền${rejectReason ? ` (${rejectReason})` : ''}`;
+          wallet.transactions[txIndex].type = 'rejected';
+        } else {
+          wallet.transactions[txIndex].desc = `Thành công: Đã chuyển về tài khoản ngân hàng lúc ${processedDate}`;
+          wallet.transactions[txIndex].type = 'withdraw';
         }
+      } else {
+        // FIX: Xử lý riêng cho Seed Data (po-101, po-102) chưa có trong ví
+        const newTx = {
+          id: targetId,
+          type: actionType === 'rejected' ? 'rejected' : 'withdraw',
+          amount: targetReq.amount,
+          desc: actionType === 'rejected' 
+            ? `Bị từ chối: Lệnh rút bị hủy - đã hoàn tiền${rejectReason ? ` (${rejectReason})` : ''}` 
+            : `Thành công: Đã chuyển về tài khoản ngân hàng lúc ${processedDate}`,
+          status: actionType,
+          createdAt: new Date().toISOString()
+        };
+        
+        if (actionType === 'rejected') {
+           wallet.balance = (wallet.balance || 0) + targetReq.amount;
+        }
+        wallet.transactions.unshift(newTx);
       }
 
+      await AsyncStorage.setItem('@guide_wallet', JSON.stringify(wallet));
+
       setSelectedReq(null);
-      setConfirmPopup({ visible: true, type: "success", title: "Thành công", message: `Đã cập nhật trạng thái lệnh rút tiền.` });
+      setConfirmPopup({ visible: true, type: "success", title: "Thành công", message: `Đã ${actionType === 'approved' ? 'duyệt' : 'từ chối'} lệnh rút tiền và cập nhật ví HDV.` });
     } catch (error) {
-      setConfirmPopup({ visible: true, type: "error", title: "Lỗi", message: "Không thể cập nhật trạng thái." });
+      setConfirmPopup({ visible: true, type: "error", title: "Lỗi", message: "Không thể cập nhật trạng thái. Vui lòng thử lại." });
     }
   };
 
@@ -132,10 +157,10 @@ export default function AdminPayoutScreen() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "pending": return { bg: "#fef3c7", txt: "#d97706", label: "Chờ chuyển khoản" };
+      case "pending":  return { bg: "#fef3c7", txt: "#d97706", label: "Chờ chuyển khoản" };
       case "approved": return { bg: "#d1fae5", txt: "#059669", label: "Đã thanh toán" };
       case "rejected": return { bg: "#fee2e2", txt: "#dc2626", label: "Đã từ chối" };
-      default: return { bg: "#f1f5f9", txt: "#64748b", label: "Tất cả" };
+      default:         return { bg: "#f1f5f9", txt: "#64748b", label: "Tất cả" };
     }
   };
 
@@ -146,7 +171,7 @@ export default function AdminPayoutScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#f3f7ff" />
       <Stack.Screen options={{ headerShown: false }} />
-      
+
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.replace("/admin-home")}>
           <Ionicons name="chevron-back" size={24} color="#1f2a58" />
@@ -168,7 +193,7 @@ export default function AdminPayoutScreen() {
               <TouchableOpacity key={st} style={[styles.filterChip, isActive && styles.filterChipActive]} onPress={() => setFilter(st)}>
                 <Text style={[styles.filterTxt, isActive && styles.filterTxtActive]}>{getStatusColor(st).label}</Text>
               </TouchableOpacity>
-            )
+            );
           })}
         </ScrollView>
       </View>
@@ -182,7 +207,7 @@ export default function AdminPayoutScreen() {
         ) : (
           filteredData.map(req => {
             const stColor = getStatusColor(req.status);
-            const safeGuideName = req.guideName || "Guide"; 
+            const safeGuideName = req.guideName || "Guide";
             return (
               <TouchableOpacity key={req.id} style={styles.card} onPress={() => setSelectedReq(req)} activeOpacity={0.7}>
                 <View style={styles.cardHeader}>
@@ -191,7 +216,6 @@ export default function AdminPayoutScreen() {
                     <Text style={[styles.statusTxt, { color: stColor.txt }]}>{stColor.label}</Text>
                   </View>
                 </View>
-                
                 <View style={styles.guideRow}>
                   <View style={styles.guideAvatar}>
                     <Text style={styles.guideAvatarTxt}>{safeGuideName.charAt(0).toUpperCase()}</Text>
@@ -199,6 +223,7 @@ export default function AdminPayoutScreen() {
                   <View style={styles.guideInfo}>
                     <Text style={styles.guideName}>{safeGuideName}</Text>
                     <Text style={styles.reqDate}>{req.requestDate || "Mới đây"}</Text>
+                    {req.rejectReason ? <Text style={{ fontSize: 11, color: '#dc2626', marginTop: 2 }}>Lý do từ chối: {req.rejectReason}</Text> : null}
                   </View>
                   <Text style={styles.amountTxt}>{formatVND(req.amount || 0)}</Text>
                 </View>
@@ -208,7 +233,6 @@ export default function AdminPayoutScreen() {
         )}
       </ScrollView>
 
-      {/* Modal Chi tiết */}
       <Modal visible={!!selectedReq} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
@@ -220,13 +244,11 @@ export default function AdminPayoutScreen() {
                     <Ionicons name="close" size={24} color="#1f2a58" />
                   </TouchableOpacity>
                 </View>
-                
                 <View style={styles.modalBody}>
                   <View style={styles.amountBox}>
                     <Text style={styles.amountBoxLabel}>Số tiền yêu cầu</Text>
                     <Text style={styles.amountBoxValue}>{formatVND(selectedReq.amount || 0)}</Text>
                   </View>
-
                   <Text style={styles.sectionTitle}>Thông tin nhận tiền (Bank)</Text>
                   <View style={styles.bankBox}>
                     <View style={styles.bankRow}>
@@ -247,19 +269,26 @@ export default function AdminPayoutScreen() {
 
                   {selectedReq.status === "pending" ? (
                     <View style={styles.actionGrid}>
-                      <TouchableOpacity style={styles.rejectBtn} onPress={() => promptAction(selectedReq.id, "rejected")}>
+                      <TouchableOpacity style={styles.rejectBtn} onPress={() => { setSelectedReq(null); promptReject(selectedReq.id); }}>
                         <Text style={styles.rejectBtnTxt}>Từ chối</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.approveBtn} onPress={() => promptAction(selectedReq.id, "approved")}>
+                      <TouchableOpacity style={styles.approveBtn} onPress={() => { setSelectedReq(null); promptApprove(selectedReq.id); }}>
                         <Ionicons name="checkmark-circle" size={20} color="#fff" />
                         <Text style={styles.approveBtnTxt}>Đã chuyển khoản</Text>
                       </TouchableOpacity>
                     </View>
                   ) : (
-                    <View style={[styles.statusResultBox, { backgroundColor: getStatusColor(selectedReq.status).bg }]}>
-                      <Text style={[styles.statusResultTxt, { color: getStatusColor(selectedReq.status).txt }]}>
-                        Lệnh này {getStatusColor(selectedReq.status).label.toLowerCase()} lúc {selectedReq.processedDate || "N/A"}
-                      </Text>
+                    <View>
+                      <View style={[styles.statusResultBox, { backgroundColor: getStatusColor(selectedReq.status).bg }]}>
+                        <Text style={[styles.statusResultTxt, { color: getStatusColor(selectedReq.status).txt }]}>
+                          Lệnh này {getStatusColor(selectedReq.status).label.toLowerCase()} lúc {selectedReq.processedDate || "N/A"}
+                        </Text>
+                      </View>
+                      {selectedReq.rejectReason ? (
+                        <View style={{ marginTop: 8, padding: 12, backgroundColor: '#fef2f2', borderRadius: 10 }}>
+                          <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: '700' }}>Lý do từ chối: {selectedReq.rejectReason}</Text>
+                        </View>
+                      ) : null}
                     </View>
                   )}
                 </View>
@@ -269,21 +298,47 @@ export default function AdminPayoutScreen() {
         </View>
       </Modal>
 
-      {/* Custom Confirm Popup */}
+      <Modal visible={showRejectInput} transparent animationType="fade">
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmBox}>
+            <View style={[styles.confirmIconWrap, { backgroundColor: "#fee2e2" }]}>
+              <Ionicons name="close-circle" size={32} color="#ef4444" />
+            </View>
+            <Text style={styles.confirmTitle}>Nhập lý do từ chối</Text>
+            <Text style={styles.confirmMessage}>Lý do sẽ hiển thị cho HDV trong lịch sử giao dịch.</Text>
+            <TextInput
+              style={styles.reasonInput}
+              placeholder="VD: Thông tin ngân hàng không khớp..."
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              multiline
+            />
+            <View style={styles.confirmActionRow}>
+              <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setShowRejectInput(false)}>
+                <Text style={styles.confirmCancelBtnTxt}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmSubmitBtn, { backgroundColor: "#ef4444" }]} onPress={confirmReject}>
+                <Text style={styles.confirmSubmitBtnTxt}>Tiếp tục từ chối</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={confirmPopup.visible} transparent animationType="fade">
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmBox}>
             <View style={[
-              styles.confirmIconWrap, 
-              confirmPopup.type === "approve" && { backgroundColor: "#eaf0ff" },
-              confirmPopup.type === "reject" && { backgroundColor: "#fee2e2" },
-              confirmPopup.type === "success" && { backgroundColor: "#d1fae5" },
-              confirmPopup.type === "error" && { backgroundColor: "#fee2e2" }
+              styles.confirmIconWrap,
+              confirmPopup.type === "approve"  && { backgroundColor: "#eaf0ff" },
+              confirmPopup.type === "reject"   && { backgroundColor: "#fee2e2" },
+              confirmPopup.type === "success"  && { backgroundColor: "#d1fae5" },
+              confirmPopup.type === "error"    && { backgroundColor: "#fee2e2" }
             ]}>
-              <Ionicons 
-                name={confirmPopup.type === "approve" ? "card" : confirmPopup.type === "success" ? "checkmark-circle" : "warning"} 
-                size={32} 
-                color={confirmPopup.type === "approve" ? "#4f7cff" : confirmPopup.type === "success" ? "#10b981" : "#ef4444"} 
+              <Ionicons
+                name={confirmPopup.type === "approve" ? "card" : confirmPopup.type === "success" ? "checkmark-circle" : "warning"}
+                size={32}
+                color={confirmPopup.type === "approve" ? "#4f7cff" : confirmPopup.type === "success" ? "#10b981" : "#ef4444"}
               />
             </View>
             <Text style={styles.confirmTitle}>{confirmPopup.title}</Text>
@@ -298,7 +353,10 @@ export default function AdminPayoutScreen() {
                 <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setConfirmPopup({ ...confirmPopup, visible: false })}>
                   <Text style={styles.confirmCancelBtnTxt}>Hủy bỏ</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.confirmSubmitBtn, { backgroundColor: confirmPopup.type === "approve" ? "#4f7cff" : "#ef4444" }]} onPress={executeAction}>
+                <TouchableOpacity
+                  style={[styles.confirmSubmitBtn, { backgroundColor: confirmPopup.type === "approve" ? "#4f7cff" : "#ef4444" }]}
+                  onPress={executeAction}
+                >
                   <Text style={styles.confirmSubmitBtnTxt}>{confirmPopup.type === "approve" ? "Xác nhận" : "Từ chối"}</Text>
                 </TouchableOpacity>
               </View>
@@ -320,19 +378,16 @@ const styles = StyleSheet.create({
   summaryCard: { backgroundColor: "#1f2a58", marginHorizontal: 16, borderRadius: 16, padding: 20, marginBottom: 12, elevation: 6, shadowColor: "#1f2a58", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 10 },
   summaryLabel: { color: "#94a8d8", fontSize: 13, fontWeight: "600", marginBottom: 6 },
   summaryValue: { color: "#fff", fontSize: 28, fontWeight: "900" },
-  
   filtersWrapper: { flexShrink: 0, paddingBottom: 10 },
   filterScroll: { paddingHorizontal: 16, gap: 10 },
   filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4ebff" },
   filterChipActive: { backgroundColor: "#4f7cff", borderColor: "#4f7cff" },
   filterTxt: { color: "#7a8cc2", fontWeight: "600", fontSize: 13 },
   filterTxtActive: { color: "#fff" },
-
   listContent: { padding: 16, paddingBottom: 100 },
   emptyState: { alignItems: "center", justifyContent: "center", marginTop: 60 },
   emptyTxt: { color: "#94a8d8", fontSize: 14, marginTop: 12 },
-  
-  card: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: "#e4ebff", elevation: 2, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10 },
+  card: { backgroundColor: "#fff", borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: "#e4ebff", elevation: 2 },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12, borderBottomWidth: 1, borderBottomColor: "#f0f4ff", paddingBottom: 10 },
   reqId: { fontSize: 12, color: "#7a8cc2", fontWeight: "700" },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
@@ -344,7 +399,6 @@ const styles = StyleSheet.create({
   guideName: { color: "#1f2a58", fontSize: 15, fontWeight: "700", marginBottom: 2 },
   reqDate: { color: "#7a8cc2", fontSize: 12 },
   amountTxt: { color: "#ef4444", fontSize: 16, fontWeight: "900" },
-  
   modalOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", justifyContent: "flex-end" },
   modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, minHeight: "50%" },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f4ff" },
@@ -363,16 +417,16 @@ const styles = StyleSheet.create({
   actionGrid: { flexDirection: "row", gap: 12 },
   rejectBtn: { flex: 1, height: 54, borderRadius: 14, backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#fecaca", alignItems: "center", justifyContent: "center" },
   rejectBtnTxt: { color: "#dc2626", fontSize: 15, fontWeight: "800" },
-  approveBtn: { flex: 2, height: 54, borderRadius: 14, backgroundColor: "#4f7cff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, elevation: 4, shadowColor: "#4f7cff", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
+  approveBtn: { flex: 2, height: 54, borderRadius: 14, backgroundColor: "#4f7cff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, elevation: 4 },
   approveBtnTxt: { color: "#fff", fontSize: 15, fontWeight: "800" },
   statusResultBox: { padding: 16, borderRadius: 12, alignItems: "center" },
   statusResultTxt: { fontSize: 14, fontWeight: "700" },
-
   confirmOverlay: { flex: 1, backgroundColor: "rgba(10,18,50,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
-  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20 },
+  confirmBox: { backgroundColor: "#fff", width: "100%", maxWidth: 360, borderRadius: 24, padding: 24, alignItems: "center", elevation: 10 },
   confirmIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16 },
   confirmTitle: { fontSize: 18, fontWeight: "800", color: "#1f2a58", marginBottom: 8, textAlign: "center" },
-  confirmMessage: { fontSize: 14, color: "#7a8cc2", textAlign: "center", lineHeight: 22, marginBottom: 24 },
+  confirmMessage: { fontSize: 14, color: "#7a8cc2", textAlign: "center", lineHeight: 22, marginBottom: 16 },
+  reasonInput: { width: "100%", backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 14, fontSize: 14, minHeight: 80, textAlignVertical: "top", marginBottom: 16 },
   confirmActionRow: { flexDirection: "row", gap: 12, width: "100%" },
   confirmCancelBtn: { flex: 1, height: 48, borderRadius: 12, backgroundColor: "#f3f7ff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4ebff" },
   confirmCancelBtnTxt: { color: "#7a8cc2", fontSize: 15, fontWeight: "700" },

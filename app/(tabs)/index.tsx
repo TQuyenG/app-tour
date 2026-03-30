@@ -329,9 +329,12 @@ export default function HomeScreen() {
                 <Text style={s.guideName}>{g.name}</Text>
                 <View style={s.guideMetaRow}><Ionicons name="location-outline" size={11} color="#7a8cc2" /><Text style={s.guideMetaTxt}>{g.location} · {g.experience}</Text></View>
                 <View style={s.guideFooter}>
-                   <Ionicons name="star" size={12} color="#f59e0b" />
-                   <Text style={s.guideRatingTxt}>{(g.rating || 5.0).toFixed(1)}</Text>
-                   <Text style={s.guideMetaTxt}> ({g.tours || 0} tour)</Text>
+                  <Ionicons name="star" size={12} color="#f59e0b" />
+                  <Text style={s.guideRatingTxt}>
+                      {/* Ép kiểu về Number trước khi toFixed để tránh lỗi String */}
+                      {Number(g.rating || 5).toFixed(1)}
+                  </Text>
+                  <Text style={s.guideMetaTxt}> ({g.tours || 0} tour)</Text>
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#c0cbe8" />

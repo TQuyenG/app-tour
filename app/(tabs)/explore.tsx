@@ -92,14 +92,21 @@ export default function GuestExploreScreen() {
     const keywords = query.split(/\s+/).filter(k => k.length > 0);
 
     const validGuides = allGuides.filter(g => {
-      const content = `${g.name} ${g.location} ${(g.skills||[]).join(' ')} ${g.bio} ${(g.languages||[]).join(' ')} ${(g.hobbies||[]).join(' ')}`.toLowerCase();
-      const matchAI = keywords.every(k => content.includes(k));
-      const matchLang = filters.language === 'Tất cả' || g.languages?.includes(filters.language);
-      const matchHobby = filters.hobby === 'Tất cả' || (g.hobbies && g.hobbies.includes(filters.hobby)) || (g.skills && g.skills.includes(filters.hobby));
-      const matchLocal = !filters.isLocal || g.isLocal === true;
-      const matchAvailable = !filters.isAvailable || !isGuideBusy(g.id);
-      return matchAI && matchLang && matchHobby && matchLocal && matchAvailable;
-    });
+    // Đảm bảo các trường là mảng, nếu là chuỗi thì cắt ra, nếu trống thì trả về mảng rỗng
+    const skillsArr = Array.isArray(g.skills) ? g.skills : (typeof g.skills === 'string' ? g.skills.split(',').map((s:any) => s.trim()) : []);
+    const langArr = Array.isArray(g.languages) ? g.languages : (typeof g.languages === 'string' ? g.languages.split(',').map((s:any) => s.trim()) : []);
+    const hobbyArr = Array.isArray(g.hobbies) ? g.hobbies : (typeof g.hobbies === 'string' ? g.hobbies.split(',').map((s:any) => s.trim()) : []);
+
+    const content = `${g.name} ${g.location} ${skillsArr.join(' ')} ${g.bio} ${langArr.join(' ')} ${hobbyArr.join(' ')}`.toLowerCase();
+    
+    const matchAI = keywords.every(k => content.includes(k));
+    const matchLang = filters.language === 'Tất cả' || langArr.includes(filters.language);
+    const matchHobby = filters.hobby === 'Tất cả' || hobbyArr.includes(filters.hobby) || skillsArr.includes(filters.hobby);
+    
+    const matchLocal = !filters.isLocal || g.isLocal === true;
+    const matchAvailable = !filters.isAvailable || !isGuideBusy(g.id);
+    return matchAI && matchLang && matchHobby && matchLocal && matchAvailable;
+  });
 
     const validTours = allTours.filter(t => {
       const content = `${t.name} ${t.departure} ${t.category} ${t.description}`.toLowerCase();
@@ -175,7 +182,7 @@ export default function GuestExploreScreen() {
                    {/* BẤM VÀO ĐÂY ĐỂ HIỆN REVIEW */}
                    <TouchableOpacity style={s.ratingBadge} onPress={(e) => { e.stopPropagation(); openPublicReviews('tour', t.id, t.name); }}>
                       <Ionicons name="star" size={10} color="#f59e0b"/>
-                      <Text style={s.ratingText}>{t.rating}</Text>
+                      <Text style={s.ratingText}>{Number(t.rating || 5).toFixed(1)}</Text>
                    </TouchableOpacity>
                 </View>
               </View>
@@ -199,16 +206,22 @@ export default function GuestExploreScreen() {
                 </View>
                 
                 <View style={s.skillRow}>
-                  {(g.skills || []).concat(g.hobbies || []).slice(0, 3).map((skill: string, i: number) => (
+                {/* Tương tự, ép kiểu mảng trước khi slice và map */}
+                {(() => {
+                  const skillsArr = Array.isArray(g.skills) ? g.skills : (typeof g.skills === 'string' ? g.skills.split(',').map((s:any) => s.trim()) : []);
+                  const hobbyArr = Array.isArray(g.hobbies) ? g.hobbies : (typeof g.hobbies === 'string' ? g.hobbies.split(',').map((s:any) => s.trim()) : []);
+                  
+                  return skillsArr.concat(hobbyArr).slice(0, 3).map((skill: string, i: number) => (
                     <View key={i} style={s.skillTag}><Text style={s.skillTagTxt}>{skill}</Text></View>
-                  ))}
-                </View>
+                  ));
+                })()}
+              </View>
 
                 <View style={s.guideFooter}>
                    {/* BẤM VÀO ĐÂY ĐỂ HIỆN REVIEW */}
                    <TouchableOpacity style={s.footerStat} onPress={(e) => { e.stopPropagation(); openPublicReviews('guide', g.id, g.name); }}>
                       <Ionicons name="star" size={14} color="#f59e0b"/>
-                      <Text style={s.statVal}>{g.rating || '5.0'} (Xem nhận xét)</Text>
+                      <Text style={s.statVal}>{Number(g.rating || 5).toFixed(1)} (Xem nhận xét)</Text>
                    </TouchableOpacity>
                    
                    <View style={s.footerStat}><Ionicons name="chatbubble-ellipses" size={14} color="#4f7cff"/><Text style={s.statVal}>{(g.languages || ['Tiếng Việt'])[0]}</Text></View>

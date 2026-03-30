@@ -1,17 +1,19 @@
 /**
  * app/active_tour_tracking.tsx
- * ĐÃ FIX: Phân quyền rõ ràng giữa Khách (Chỉ báo đã đến) và HDV (Điểm danh).
- * ĐÃ THÊM: Tự động đồng bộ chuyển màn hình Bản đồ GPS cho khách khi HDV bắt đầu.
+ * ĐÃ FIX CRITICAL:
+ * 1. Đổi import AsyncStorage sang @/constants/storage-helper (đồng bộ với guide-earnings & guest_loyalty)
+ * 2. Fix logic giải ngân HDV + tích điểm khách đúng key
+ * 3. Nút "Về Trang Chủ" sau khi kết thúc tour: HDV → guide-home, Khách → /
  */
 import { GuideTabBar } from '@/components/GuideTabBar';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@/constants/storage-helper';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import {
-  ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform,
+  ActivityIndicator, Alert, Animated, KeyboardAvoidingView, Modal, Platform,
   ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput,
-  TouchableOpacity, View, useWindowDimensions, Alert
+  TouchableOpacity, View, useWindowDimensions
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -87,6 +89,7 @@ export default function ActiveTourTrackingScreen() {
           }
         }
       } catch (error) {
+        console.error('loadData error:', error);
       } finally {
         setIsLoading(false);
       }
@@ -97,7 +100,6 @@ export default function ActiveTourTrackingScreen() {
   // --- TỰ ĐỘNG ĐỒNG BỘ MÀN HÌNH KHÁCH KHI HDV BẤM BẮT ĐẦU ---
   useEffect(() => {
     let interval: any;
-    // Nếu là khách và tour chưa bắt đầu, quét DB mỗi 3 giây xem HDV đã bấm bắt đầu chưa
     if (role === 'guest' && (tourPhase === TOUR_PHASE.PREPARE || tourPhase === TOUR_PHASE.CHECKIN)) {
       interval = setInterval(async () => {
         try {
@@ -106,7 +108,7 @@ export default function ActiveTourTrackingScreen() {
             const list = JSON.parse(raw);
             const current = list.find((b: any) => String(b.id) === String(booking?.id));
             if (current && current.status === 'on-tour') {
-              setTourPhase(TOUR_PHASE.ACTIVE); // Tự động nhảy sang Bản đồ GPS
+              setTourPhase(TOUR_PHASE.ACTIVE);
             }
           }
         } catch (e) {}
@@ -139,7 +141,6 @@ export default function ActiveTourTrackingScreen() {
       return;
     }
     
-    // HDV chốt -> Đổi status DB -> Chuyển màn hình HDV sang Map (Màn hình khách sẽ tự động quét và nhảy theo)
     setTourPhase(TOUR_PHASE.ACTIVE);
     try {
       const raw = await AsyncStorage.getItem('@guest_bookings');
@@ -148,66 +149,145 @@ export default function ActiveTourTrackingScreen() {
         const updated = list.map((b: any) => b.id === booking.id ? { ...b, status: 'on-tour' } : b);
         await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updated));
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('handleConfirmCheckinFinal error:', e);
+    }
   };
 
+  // ============================================================
+  // ✅ FIX HOÀN CHỈNH: handleStopTour
+  // - Ghi ví HDV qua storage-helper (đồng bộ với guide-earnings.tsx)
+  // - Ghi điểm khách vào @app_profile.loyaltyPoints + @guest_loyalty_history
+  //   (đúng key mà guest_loyalty.tsx đọc)
+  // ============================================================
   const handleStopTour = () => {
     setCustomAlert({
-      visible: true, title: "Kết Thúc Tour", message: "Bạn chắc chắn muốn kết thúc chuyến đi này? Hệ thống sẽ chốt dữ liệu để thanh toán.", showCancel: true,
+      visible: true,
+      title: "Kết Thúc Tour",
+      message: "Bạn chắc chắn muốn kết thúc chuyến đi này? Hệ thống sẽ chốt dữ liệu để thanh toán.",
+      showCancel: true,
       onConfirm: async () => {
         setCustomAlert(p => ({ ...p, visible: false }));
-        setTourPhase(TOUR_PHASE.FINISHED);
+
         try {
+          // ── BƯỚC 1: Đọc & cập nhật booking → completed ──
           const raw = await AsyncStorage.getItem('@guest_bookings');
-          if (!raw) return;
+          if (!raw) {
+            Alert.alert('Lỗi', 'Không tìm thấy dữ liệu đơn tour.');
+            return;
+          }
           const list = JSON.parse(raw);
           const currentBooking = list.find((b: any) => b.id === booking.id);
-          if (currentBooking.status === 'completed') return;
 
-          const updated = list.map((b: any) => b.id === booking.id ? { ...b, status: 'completed' } : b);
+          if (!currentBooking) {
+            Alert.alert('Lỗi', 'Không tìm thấy đơn tour trong hệ thống.');
+            return;
+          }
+          if (currentBooking.status === 'completed') {
+            // Tour đã kết thúc trước đó, chỉ chuyển phase UI
+            setTourPhase(TOUR_PHASE.FINISHED);
+            return;
+          }
+
+          const updated = list.map((b: any) =>
+            b.id === booking.id ? { ...b, status: 'completed' } : b
+          );
           await AsyncStorage.setItem('@guest_bookings', JSON.stringify(updated));
 
-          const rawRules = await AsyncStorage.getItem('@admin_commissions');
-          let commRate = 12;
-          if (rawRules) {
-             const rules = JSON.parse(rawRules);
-             const rule = rules.find((r: any) => r.category === currentBooking.category) || rules[0];
-             if (rule) commRate = rule.rate;
-          }
-          const totalAmt = currentBooking.totalAmount || currentBooking.priceRaw || 0;
-          const netIncome = totalAmt - ((totalAmt * commRate) / 100) - ((totalAmt * 1) / 100);
+          // Chuyển UI sang FINISHED sau khi ghi thành công
+          setTourPhase(TOUR_PHASE.FINISHED);
 
+          // ── BƯỚC 2: Tính toán hoa hồng & giải ngân cho HDV ──
+          const rawRules = await AsyncStorage.getItem('@admin_commissions');
+          let commRate = 12; // fallback 12% nếu chưa cấu hình
+          if (rawRules) {
+            const rules = JSON.parse(rawRules);
+            const matchedRule = rules.find((r: any) => r.category === currentBooking.category);
+            const fallbackRule = rules[0];
+            const rule = matchedRule || fallbackRule;
+            if (rule) commRate = rule.rate;
+          }
+
+          const totalAmt = Number(currentBooking.totalAmount || currentBooking.priceRaw || 0);
+          // Thu nhập ròng = Tổng tiền - hoa hồng admin - 1% phí nền tảng
+          const netIncome = totalAmt - (totalAmt * commRate / 100) - (totalAmt * 1 / 100);
+
+          // Ghi vào ví HDV (cùng key với guide-earnings.tsx)
           const wRaw = await AsyncStorage.getItem('@guide_wallet');
           const wallet = wRaw ? JSON.parse(wRaw) : { balance: 0, transactions: [] };
-          wallet.balance += netIncome;
+          wallet.balance = (wallet.balance || 0) + netIncome;
+          if (!Array.isArray(wallet.transactions)) wallet.transactions = [];
           wallet.transactions.unshift({
-             id: `tx-tour-${currentBooking.id}`, type: 'tour_income', amount: netIncome,
-             desc: `Giải ngân Tour: ${currentBooking.tourName} (Trừ ${commRate}% HH)`, createdAt: new Date().toISOString()
+            id: `tx-tour-${currentBooking.id}-${Date.now()}`,
+            type: 'tour_income',
+            amount: netIncome,
+            desc: `Giải ngân Tour: ${currentBooking.tourName || 'Tour'} (Trừ ${commRate}% HH + 1% phí)`,
+            status: 'completed',
+            createdAt: new Date().toISOString(),
           });
           await AsyncStorage.setItem('@guide_wallet', JSON.stringify(wallet));
 
+          // ── BƯỚC 3: Tích điểm cho khách ──
+          // Đọc số điểm thưởng từ thông tin tour (nếu có), mặc định 200
           let rewardPoints = 200;
           const tRaw = await AsyncStorage.getItem('@app_tours');
           if (tRaw) {
-             const tourInfo = JSON.parse(tRaw).find((t: any) => t.id === currentBooking.tourId);
-             if (tourInfo && tourInfo.rewardPoints) rewardPoints = tourInfo.rewardPoints; 
+            const tourInfo = JSON.parse(tRaw).find((t: any) => t.id === currentBooking.tourId);
+            if (tourInfo?.rewardPoints) rewardPoints = Number(tourInfo.rewardPoints);
           }
-          const loyaltyRaw = await AsyncStorage.getItem('@guest_loyalty');
-          let loyalty = loyaltyRaw ? JSON.parse(loyaltyRaw) : [];
-          const cId = currentBooking.accountId || currentBooking.guestId;
-          if (Array.isArray(loyalty)) {
-              const idx = loyalty.findIndex((l: any) => l.accountId === cId);
-              if (idx > -1) loyalty[idx].points = (loyalty[idx].points || 0) + rewardPoints;
-              else loyalty.push({ accountId: cId, points: rewardPoints });
-              await AsyncStorage.setItem('@guest_loyalty', JSON.stringify(loyalty));
-          }
-        } catch (e) {}
+
+          // Ghi vào @app_profile.loyaltyPoints — đúng key guest_loyalty.tsx đọc
+          const pRaw = await AsyncStorage.getItem('@app_profile');
+          const profile = pRaw ? JSON.parse(pRaw) : {};
+          const oldPoints = Number(profile.loyaltyPoints) || 0;
+          profile.loyaltyPoints = oldPoints + rewardPoints;
+          await AsyncStorage.setItem('@app_profile', JSON.stringify(profile));
+
+          // Ghi lịch sử vào @guest_loyalty_history — đúng key guest_loyalty.tsx đọc
+          const hRaw = await AsyncStorage.getItem('@guest_loyalty_history');
+          const loyaltyHistory = hRaw ? JSON.parse(hRaw) : [];
+          loyaltyHistory.unshift({
+            id: `h-tour-${currentBooking.id}-${Date.now()}`,
+            type: 'earn',
+            points: rewardPoints,
+            desc: `Hoàn thành tour: ${currentBooking.tourName || 'Tour'}`,
+            date: new Date().toISOString(),
+          });
+          await AsyncStorage.setItem('@guest_loyalty_history', JSON.stringify(loyaltyHistory));
+
+        } catch (e) {
+          // Hiển thị lỗi cụ thể để debug
+          console.error('handleStopTour error:', e);
+          Alert.alert('Có lỗi xảy ra', `Chi tiết: ${String(e)}\n\nVui lòng thử lại.`);
+        }
       }
     });
   };
 
-  if (isLoading) return (<View style={[s.screen, { justifyContent: 'center', alignItems: 'center' }]}><ActivityIndicator size="large" color="#4f7cff" /><Text style={{ marginTop: 16, color: '#64748b' }}>Đang tải dữ liệu chuyến đi...</Text></View>);
-  if (!booking) return (<View style={[s.screen, { justifyContent: 'center', alignItems: 'center', padding: 20 }]}><Ionicons name="document-text-outline" size={80} color="#cbd5e1" /><Text style={{ marginTop: 16, color: '#1f2a58', fontWeight: '900', fontSize: 18 }}>Không tìm thấy Đơn Tour!</Text><TouchableOpacity style={[s.primaryBtn, { marginTop: 24, width: '100%' }]} onPress={() => router.back()}><Text style={s.primaryBtnTxt}>Quay Lại</Text></TouchableOpacity></View>);
+  // ── NAVIGATE VỀ TRANG CHỦ THEO ROLE ──
+  const handleGoHome = () => {
+    if (role === 'guide') {
+      router.replace('/guide-home');
+    } else {
+      router.replace('/');
+    }
+  };
+
+  if (isLoading) return (
+    <View style={[s.screen, { justifyContent: 'center', alignItems: 'center' }]}>
+      <ActivityIndicator size="large" color="#4f7cff" />
+      <Text style={{ marginTop: 16, color: '#64748b' }}>Đang tải dữ liệu chuyến đi...</Text>
+    </View>
+  );
+  if (!booking) return (
+    <View style={[s.screen, { justifyContent: 'center', alignItems: 'center', padding: 20 }]}>
+      <Ionicons name="document-text-outline" size={80} color="#cbd5e1" />
+      <Text style={{ marginTop: 16, color: '#1f2a58', fontWeight: '900', fontSize: 18 }}>Không tìm thấy Đơn Tour!</Text>
+      <TouchableOpacity style={[s.primaryBtn, { marginTop: 24, width: '100%' }]} onPress={handleGoHome}>
+        <Text style={s.primaryBtnTxt}>Quay Lại</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const HealthBubble = () => {
     const [heartRate, setHeartRate] = useState(75);
@@ -235,7 +315,9 @@ export default function ActiveTourTrackingScreen() {
 
       {/* HEADER */}
       <View style={[s.header, { paddingTop: insets.top + Math.round(10 * scale) }]}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()}><Ionicons name="arrow-back" size={24} color="#1f2a58" /></TouchableOpacity>
+        <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color="#1f2a58" />
+        </TouchableOpacity>
         <View style={{ alignItems: 'center' }}>
            <Text style={s.title}>{tourPhase === TOUR_PHASE.ACTIVE ? 'Hành trình Live' : 'Quản lý Chuyến đi'}</Text>
            <Text style={s.subTitle}>Mã vé: {booking.id}</Text>
@@ -269,7 +351,6 @@ export default function ActiveTourTrackingScreen() {
         {/* PHASE 1 & 2: PHÂN QUYỀN HIỂN THỊ */}
         {(tourPhase === TOUR_PHASE.PREPARE || tourPhase === TOUR_PHASE.CHECKIN) && (
           role === 'guide' ? (
-             // --- GIAO DIỆN CỦA HDV ---
              tourPhase === TOUR_PHASE.PREPARE ? (
                <TouchableOpacity style={s.primaryBtn} onPress={() => setTourPhase(TOUR_PHASE.CHECKIN)}>
                  <Ionicons name="qr-code" size={20} color="#fff" />
@@ -307,7 +388,6 @@ export default function ActiveTourTrackingScreen() {
                </View>
              )
           ) : (
-             // --- GIAO DIỆN CỦA KHÁCH (CHỜ ĐIỂM DANH) ---
              <View style={s.guestWaitBox}>
                 {tourPhase === TOUR_PHASE.PREPARE ? (
                    <>
@@ -328,14 +408,17 @@ export default function ActiveTourTrackingScreen() {
           )
         )}
 
-        {/* PHASE 3: ACTIVE ON-TOUR (CẢ HAI ĐỀU THẤY) */}
+        {/* PHASE 3: ACTIVE ON-TOUR */}
         {tourPhase === TOUR_PHASE.ACTIVE && (
           <View>
             <View style={s.mapContainer}>
               <Ionicons name="location" size={50} color="#ef4444" />
               <Text style={s.mapText}>Bản Đồ GPS Hành Trình</Text>
               {gpsEnabled && (
-                <View style={s.gpsStatusActive}><ActivityIndicator size="small" color="#fff" /><Text style={s.gpsStatusText}>GPS Trực Tuyến</Text></View>
+                <View style={s.gpsStatusActive}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={s.gpsStatusText}>GPS Trực Tuyến</Text>
+                </View>
               )}
               {role === 'guest' && <HealthBubble />}
             </View>
@@ -375,15 +458,33 @@ export default function ActiveTourTrackingScreen() {
           <View style={s.finishedContainer}>
             <Ionicons name="flag" size={80} color="#10b981" />
             <Text style={s.finishedTitle}>Tour Đã Hoàn Thành!</Text>
-            <Text style={s.finishedSub}>Hành trình tuyệt vời. Hệ thống đang tiến hành xử lý hóa đơn và đánh giá.</Text>
-            <TouchableOpacity style={s.primaryBtn} onPress={() => router.replace('/')}>
-              <Text style={s.primaryBtnTxt}>Về Màn Hình Chính</Text>
+            <Text style={s.finishedSub}>
+              {role === 'guide'
+                ? 'Hành trình tuyệt vời! Thu nhập đã được giải ngân vào Ví của bạn.'
+                : 'Hành trình tuyệt vời! Điểm thưởng đã được cộng vào tài khoản của bạn.'}
+            </Text>
+            {/* ✅ FIX: Nút về trang chủ theo đúng role */}
+            <TouchableOpacity style={s.primaryBtn} onPress={handleGoHome}>
+              <Ionicons name={role === 'guide' ? 'briefcase' : 'home'} size={20} color="#fff" />
+              <Text style={s.primaryBtnTxt}>
+                {role === 'guide' ? 'Về Trang Chủ HDV' : 'Về Trang Chủ'}
+              </Text>
+            </TouchableOpacity>
+            {/* Nút phụ: Xem ví/điểm thưởng ngay */}
+            <TouchableOpacity
+              style={[s.secondaryActionBtn, { marginTop: 12, width: '100%', borderColor: '#e4ebff' }]}
+              onPress={() => role === 'guide' ? router.replace('/guide-earnings') : router.replace('/guest_loyalty')}
+            >
+              <Ionicons name={role === 'guide' ? 'wallet-outline' : 'star-outline'} size={18} color="#4f7cff" />
+              <Text style={[s.secondaryActionText, { color: '#4f7cff' }]}>
+                {role === 'guide' ? 'Xem Ví Thu Nhập' : 'Xem Điểm Thưởng'}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
 
-      {/* NÚT SOS NỔI (Kích hoạt khi đang đi) */}
+      {/* NÚT SOS NỔI */}
       {(tourPhase === TOUR_PHASE.CHECKIN || tourPhase === TOUR_PHASE.ACTIVE) && (
         <TouchableOpacity style={s.sosButton} onPress={() => setShowModal('sos')}>
           <View style={s.sosGradient}>

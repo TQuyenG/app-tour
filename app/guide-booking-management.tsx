@@ -219,8 +219,8 @@ export default function GuideBookingManagement() {
                             <Text style={s.reviewTitle}>Khách đã đánh giá</Text>
                          </View>
                          <View style={{flexDirection: 'row', gap: 10, marginTop: 4}}>
-                            <Text style={s.reviewStats}>Tour: <Text style={{fontWeight:'bold'}}>{rv.tourRating || rv.rating || 5}⭐</Text></Text>
-                            <Text style={s.reviewStats}>Phục vụ: <Text style={{fontWeight:'bold'}}>{rv.guideRating || rv.overallRating || rv.rating || 5}⭐</Text></Text>
+                            <Text style={s.reviewStats}>Tour: <Text style={{fontWeight:'bold'}}>{Number(rv.tourRating || 5).toFixed(1)}</Text></Text>
+                            <Text style={s.reviewStats}>Phục vụ: <Text style={{fontWeight:'bold'}}>{Number(rv.guideRating || rv.overallRating || rv.rating || 5).toFixed(1)}</Text></Text>
                          </View>
                          <Text style={s.reviewText}>"{rv.reviewText || rv.comment || 'Không có nhận xét'}"</Text>
                          {rv.tipAmount > 0 && <Text style={s.reviewTip}>+ Tiền Tip: {Number(rv.tipAmount).toLocaleString("vi-VN")}đ</Text>}
